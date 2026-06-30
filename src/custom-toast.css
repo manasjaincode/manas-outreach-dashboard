@@ -1,0 +1,12 @@
+/* src/custom-toast.css */
+
+/* Override the background color for error toasts */
+.Toastify__toast--error {
+  background-color: #ff0000 !important; /* Pure red */
+  color: white !important; /* Ensure text is white for contrast */
+}
+
+/* You might also want to adjust the progress bar for error toasts if it's visible */
+.Toastify__progress-bar--error {
+  background-color: #cc0000 !important; /* A slightly darker red for the progress bar */
+}

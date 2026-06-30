@@ -1,0 +1,119 @@
+/* GlobalLoader.css */
+
+.spinner {
+  width: 20px; /* Keep this as is for the spinner size */
+  height: 20px; /* Keep this as is for the spinner size */
+  position: relative;
+}
+
+.ball {
+  height: 20px;
+  width: 20px;
+  background: rgba(255, 255, 255, 0.8);
+  border-radius: 50%;
+  float: left;
+  position: absolute;
+}
+
+/* Individual ball colors and animations (now transitioning between shades of white/gray) */
+.ball-1 {
+  background: rgba(255, 255, 255, 0.8);
+  top: 0;
+  left: 50%;
+  animation: ball1 1s 0s ease infinite;
+  z-index: 1;
+}
+
+.ball-2 {
+  background: rgba(255, 255, 255, 0.8);
+  top: 50%;
+  left: 100%;
+  animation: ball2 1s 0s ease infinite;
+  z-index: 2;
+}
+
+.ball-3 {
+  background: rgba(255, 255, 255, 0.8);
+  top: 100%;
+  left: 50%;
+  animation: ball3 1s 0s ease infinite;
+  z-index: 1;
+}
+
+.ball-4 {
+  background: rgba(255, 255, 255, 0.8);
+  top: 50%;
+  left: 0%;
+  animation: ball4 1s 0s ease infinite;
+  z-index: 2;
+}
+
+/* New style for the loading text inside the spinner */
+.spinner .loading-text {
+  position: absolute;
+  /* Adjust top to move it further down. 
+     Start with a larger value like 40px or 50px, then adjust. */
+  top: calc(100% + 40px); /* Increased spacing for text below the spinner */
+  left: 50%;
+  transform: translateX(-50%); /* Keeps it horizontally centered relative to its parent (.spinner) */
+  white-space: nowrap;
+  color: white; /* Ensure text is visible on the black background */
+  font-size: 1rem; /* Adjust as needed */
+}
+
+
+@keyframes ball1 {
+  50% {
+    top: -50%;
+    left: 150%;
+    background: rgba(200, 200, 200, 0.8);
+  }
+  100% {
+    top: 50%;
+    left: 100%;
+    background: rgba(255, 255, 255, 0.8);
+    z-index: 2;
+  }
+}
+
+@keyframes ball2 {
+  50% {
+    top: 150%;
+    left: 150%;
+    background: rgba(200, 200, 200, 0.8);
+  }
+  100% {
+    top: 100%;
+    left: 50%;
+    background: rgba(255, 255, 255, 0.8);
+    z-index: 1;
+  }
+}
+
+@keyframes ball3 {
+  50% {
+    top: 150%;
+    left: -50%;
+    background: rgba(200, 200, 200, 0.8);
+  }
+  100% {
+    top: 50%;
+    left: 0%;
+    background: rgba(255, 255, 255, 0.8);
+    z-index: 2;
+  }
+}
+
+@keyframes ball4 {
+  50% {
+    top: -50%;
+    left: -50%;
+    background: rgba(200, 200, 200, 0.8);
+  }
+  100% {
+    top: 0%;
+    left: 50%;
+    background: rgba(255, 255, 255, 0.8);
+    z-index: 1;
+  }
+}
