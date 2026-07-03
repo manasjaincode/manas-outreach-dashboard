@@ -18,442 +18,34 @@ const SENDER_ACCOUNTS = [
   { id: 5, name: "Manas Jain", email: import.meta.env.VITE_SENDER_5 || "", label: "Sender 5" },
 ].filter((s) => s.email);
 
-// Industries → Categories → 5 draft templates each
-const TEMPLATE_LIBRARY = {
-  "IT & Software": {
-    "Web Development": [
-      {
-        id: "wd1",
-        subject: "Quick question about {{company}}'s website",
-        body: `Hi {{contact}},
+// ============================================================
+// TEMPLATE LIBRARY — loaded from localStorage (user-editable)
+// ============================================================
+
+const DEFAULT_TEMPLATE_LIBRARY = {}
+
+const loadTemplateLibrary = () => {
+  try {
+    const saved = localStorage.getItem("bi_template_library")
+    if (saved) {
+      const parsed = JSON.parse(saved)
+      if (Object.keys(parsed).length > 0) return parsed
+    }
+  } catch {}
+  return DEFAULT_TEMPLATE_LIBRARY
+}
+
+const saveTemplateLibrary = (lib) => {
+  try { localStorage.setItem("bi_template_library", JSON.stringify(lib)) } catch {}
+}
+
+// ============================================================
+// BREVO API FUNCTIONS===========================
+// BREVO CONFIG — add these to your .env
+// VITE_BREVO_API_KEY=xkeysib-xxxx   (Settings → API Keys in Brevo)
+// Sender IDs configured in Brevo dashboard under Senders & IPs
+// ============================================================
 
-Came across {{company}} while researching {{city}}-based businesses — noticed your website and had a thought.
-
-{{custom_line}}
-
-We help businesses like yours convert more visitors into leads through performance-focused web development. A few things we typically improve:
-• Page speed (most sites lose 40% visitors after 3s load time)
-• Mobile experience
-• Clear CTAs that actually convert
-
-Would a 15-min call make sense this week? Happy to share what we've seen work for similar companies.
-
-Best,
-{{sender_name}}`,
-      },
-      {
-        id: "wd2",
-        subject: "{{company}} — website opportunity I spotted",
-        body: `Hi {{contact}},
-
-{{custom_line}}
-
-I work with 20+ businesses in {{city}} on their web presence. Most of them had one thing in common before we worked together — their website wasn't doing any selling for them.
-
-We build websites that work as a 24/7 salesperson. Interested in a quick look at what's possible for {{company}}?
-
-Regards,
-{{sender_name}}`,
-      },
-      {
-        id: "wd3",
-        subject: "Helping {{company}} get more from their online presence",
-        body: `Hi {{contact}},
-
-{{custom_line}}
-
-We've been working with several firms in {{industry}} on redesigning their web experience — the results have been solid (happy to share specifics on a call).
-
-Would {{company}} be open to a complimentary audit of your current site? No pitch, just honest feedback.
-
-{{sender_name}}`,
-      },
-      {
-        id: "wd4",
-        subject: "{{company}} — 3 things I noticed on your site",
-        body: `Hi {{contact}},
-
-Spent 10 mins on {{company}}'s website. {{custom_line}}
-
-Three quick observations:
-1. [Speed/mobile/UX observation — fill before sending]
-2. [CTA or lead capture observation]
-3. [Trust signals observation]
-
-We fix these regularly for businesses in {{city}}. Worth a 20-min conversation?
-
-{{sender_name}}`,
-      },
-      {
-        id: "wd5",
-        subject: "Your competitors' websites are pulling ahead",
-        body: `Hi {{contact}},
-
-{{custom_line}}
-
-We track web presence for businesses across {{city}} in {{industry}}. The ones growing fastest have one thing in common — a website built to generate leads, not just look good.
-
-If {{company}} wants to see how you stack up, I can put together a quick competitive snapshot. Free, no strings.
-
-{{sender_name}}`,
-      },
-    ],
-    "App Development": [
-      {
-        id: "ad1",
-        subject: "App idea for {{company}}?",
-        body: `Hi {{contact}},
-
-{{custom_line}}
-
-We build mobile apps for businesses that want to give their customers a better experience — and reduce manual workload internally.
-
-Curious: does {{company}} have a mobile touchpoint for your clients yet? If not, there might be a real opportunity here.
-
-Happy to share 2-3 concepts specific to your business if you're open to it.
-
-{{sender_name}}`,
-      },
-      {
-        id: "ad2",
-        subject: "{{company}} — could an app 10x your customer retention?",
-        body: `Hi {{contact}},
-
-{{custom_line}}
-
-Most businesses in {{industry}} underestimate what a well-built app can do for retention and repeat business. We've seen 30-40% improvement in customer LTV for clients who made the switch.
-
-Would love to show you what we've built for similar businesses. 15 mins?
-
-{{sender_name}}`,
-      },
-      {
-        id: "ad3",
-        subject: "Reducing manual work at {{company}} with tech",
-        body: `Hi {{contact}},
-
-{{custom_line}}
-
-We recently built an internal app for a {{industry}} company in {{city}} that saved their team ~15 hours/week. The ROI showed up in month 2.
-
-Is there a process at {{company}} that still runs on WhatsApp, Excel, or calls that could be streamlined?
-
-{{sender_name}}`,
-      },
-      {
-        id: "ad4",
-        subject: "Quick app audit for {{company}}",
-        body: `Hi {{contact}},
-
-{{custom_line}}
-
-We're doing free digital audits for businesses in {{city}} this month — specifically looking at where an app or automation could save time or grow revenue.
-
-Can I send you a short questionnaire? Takes 5 mins, and we'll share our findings for free.
-
-{{sender_name}}`,
-      },
-      {
-        id: "ad5",
-        subject: "{{company}} — mobile-first strategy worth discussing",
-        body: `Hi {{contact}},
-
-{{custom_line}}
-
-70%+ of your customers are on mobile. If your engagement with them isn't mobile-first, you're leaving money on the table.
-
-We help {{industry}} businesses build apps that customers actually use. Worth exploring for {{company}}?
-
-{{sender_name}}`,
-      },
-    ],
-    "AI & Automation": [
-      {
-        id: "ai1",
-        subject: "What AI could do for {{company}}",
-        body: `Hi {{contact}},
-
-{{custom_line}}
-
-We're working with businesses in {{city}} to implement practical AI — not the hype, but real tools that cut costs and save time.
-
-Common wins we deliver:
-• AI chatbots for customer queries (reduces support load 60%)
-• Automated lead qualification
-• Smart document processing
-
-Would {{company}} be open to a 20-min discovery call? I'll come with 3 specific ideas for your business.
-
-{{sender_name}}`,
-      },
-      {
-        id: "ai2",
-        subject: "Automating the repetitive work at {{company}}",
-        body: `Hi {{contact}},
-
-{{custom_line}}
-
-Most businesses we talk to have 3-5 tasks that eat hours every week but don't need a human to do them. We find those and automate them.
-
-For {{company}}, I'm guessing it could be [data entry / reporting / follow-ups / scheduling — edit before sending].
-
-Can we spend 15 mins exploring this?
-
-{{sender_name}}`,
-      },
-      {
-        id: "ai3",
-        subject: "{{company}} — AI tools your competitors are already using",
-        body: `Hi {{contact}},
-
-{{custom_line}}
-
-Businesses in {{industry}} are quietly adopting AI to move faster with smaller teams. The gap between early adopters and others is widening.
-
-We help companies like {{company}} identify the highest-ROI AI implementations. Not theory — actual tools, actual results.
-
-Interested in a quick overview?
-
-{{sender_name}}`,
-      },
-      {
-        id: "ai4",
-        subject: "Free AI audit for {{company}}",
-        body: `Hi {{contact}},
-
-{{custom_line}}
-
-We're offering complimentary AI readiness audits to {{industry}} businesses in {{city}} this quarter. We look at your current workflows and identify where AI can create the most impact.
-
-Takes 30 minutes. Would {{contact}} be the right person to connect with, or should I reach out to someone else?
-
-{{sender_name}}`,
-      },
-      {
-        id: "ai5",
-        subject: "Cut {{company}}'s operational costs with AI",
-        body: `Hi {{contact}},
-
-{{custom_line}}
-
-We've helped businesses in {{city}} reduce operational costs by 20-35% using targeted AI automation. The payback period is usually under 6 months.
-
-Happy to share a case study relevant to {{industry}} if that would be useful.
-
-{{sender_name}}`,
-      },
-    ],
-    Blockchain: [
-      {
-        id: "bc1",
-        subject: "Blockchain use case for {{company}}",
-        body: `Hi {{contact}},
-
-{{custom_line}}
-
-We help businesses in {{industry}} explore practical blockchain applications — supply chain transparency, smart contracts, tokenization, or secure document verification.
-
-Most of our clients were skeptical at first. After a 30-min session, they usually walk away with 2-3 concrete use cases specific to their business.
-
-Worth a conversation for {{company}}?
-
-{{sender_name}}`,
-      },
-      {
-        id: "bc2",
-        subject: "{{company}} — is blockchain relevant for you?",
-        body: `Hi {{contact}},
-
-{{custom_line}}
-
-Honest answer: blockchain isn't right for every business. But for companies in {{industry}} dealing with multi-party transactions, document authenticity, or supply chains — it often is.
-
-We do a free 30-min assessment to figure out if there's a genuine fit. No commitment, just clarity.
-
-Interested?
-
-{{sender_name}}`,
-      },
-      {
-        id: "bc3",
-        subject: "Smart contracts could save {{company}} time and money",
-        body: `Hi {{contact}},
-
-{{custom_line}}
-
-We've built smart contract systems for businesses that reduced contract processing time by 70% and eliminated disputes over terms.
-
-For a {{industry}} company like {{company}}, the applications could be significant. Happy to walk you through a real example.
-
-{{sender_name}}`,
-      },
-      {
-        id: "bc4",
-        subject: "Web3 strategy for {{company}}",
-        body: `Hi {{contact}},
-
-{{custom_line}}
-
-Whether it's NFTs, tokenized loyalty programs, or decentralized identity — Web3 is creating new business models in {{industry}}.
-
-We help companies figure out what's relevant and build it properly. Would {{company}} be open to a strategic conversation?
-
-{{sender_name}}`,
-      },
-      {
-        id: "bc5",
-        subject: "Securing {{company}}'s data with blockchain",
-        body: `Hi {{contact}},
-
-{{custom_line}}
-
-Data integrity and audit trails are becoming critical in {{industry}}. Blockchain provides tamper-proof records that hold up to scrutiny.
-
-We've implemented this for several {{city}}-based businesses. Happy to share how it could apply to {{company}}.
-
-{{sender_name}}`,
-      },
-    ],
-  },
-  "CA & Finance": {
-    "Accounting Software": [
-      {
-        id: "as1",
-        subject: "Streamlining accounting at {{company}}",
-        body: `Hi {{contact}},
-
-{{custom_line}}
-
-We work with CA firms and finance businesses in {{city}} to implement and customize accounting software — Tally, Zoho Books, or custom ERP depending on the need.
-
-Most firms we work with save 8-10 hours/week after the switch. Would that be worth a 20-min call?
-
-{{sender_name}}`,
-      },
-      {
-        id: "as2",
-        subject: "{{company}} — are your accounting workflows as efficient as they could be?",
-        body: `Hi {{contact}},
-
-{{custom_line}}
-
-We've helped 15+ CA firms in {{city}} modernize their back-office. The biggest wins usually come from automating reconciliation, GST filing prep, and client reporting.
-
-Happy to share what's worked. Quick call this week?
-
-{{sender_name}}`,
-      },
-      {
-        id: "as3",
-        subject: "Tech for CA firms — what's actually worth it",
-        body: `Hi {{contact}},
-
-{{custom_line}}
-
-There's a lot of software out there claiming to help CA practices. Most of it adds complexity. We cut through that and implement only what actually moves the needle.
-
-Would {{company}} be open to a free tech stack review?
-
-{{sender_name}}`,
-      },
-      {
-        id: "as4",
-        subject: "Helping {{company}} go paperless",
-        body: `Hi {{contact}},
-
-{{custom_line}}
-
-We've helped CA firms in {{city}} move from paper-heavy workflows to fully digital operations — document management, e-signatures, client portals.
-
-The transition is smoother than most expect. Want to see how it would look for {{company}}?
-
-{{sender_name}}`,
-      },
-      {
-        id: "as5",
-        subject: "Client portal for {{company}}?",
-        body: `Hi {{contact}},
-
-{{custom_line}}
-
-We build secure client portals for CA firms — document sharing, task tracking, communication, all in one place. Clients love it, and it reduces back-and-forth emails by 60%.
-
-Worth showing you a demo for {{company}}?
-
-{{sender_name}}`,
-      },
-    ],
-  },
-  "Real Estate": {
-    "Property Tech": [
-      {
-        id: "pt1",
-        subject: "Tech to help {{company}} close more deals",
-        body: `Hi {{contact}},
-
-{{custom_line}}
-
-We build CRM and lead management tools specifically for real estate businesses in {{city}}. The goal: no lead slips through, and follow-ups happen automatically.
-
-Would {{company}} be open to seeing how it works?
-
-{{sender_name}}`,
-      },
-      {
-        id: "pt2",
-        subject: "{{company}} — are you losing leads to slow follow-up?",
-        body: `Hi {{contact}},
-
-{{custom_line}}
-
-Studies show 78% of real estate leads go with the first company that responds. We build automated follow-up systems that make sure {{company}} is always first.
-
-15-min call to show you the system?
-
-{{sender_name}}`,
-      },
-      {
-        id: "pt3",
-        subject: "Virtual tours and 3D walkthroughs for {{company}}",
-        body: `Hi {{contact}},
-
-{{custom_line}}
-
-We build virtual tour and 3D walkthrough solutions for real estate companies. Buyers from anywhere can explore properties — reducing site visits for serious buyers only.
-
-This is becoming standard in {{city}}'s top agencies. Want to see a live demo?
-
-{{sender_name}}`,
-      },
-      {
-        id: "pt4",
-        subject: "Automating {{company}}'s property listings",
-        body: `Hi {{contact}},
-
-{{custom_line}}
-
-We integrate real estate portals (99acres, MagicBricks, Housing) with a central dashboard so your team manages everything from one place. No duplicate data entry.
-
-Saves 5+ hours/week for most agencies. Worth exploring?
-
-{{sender_name}}`,
-      },
-      {
-        id: "pt5",
-        subject: "Website that generates leads for {{company}}",
-        body: `Hi {{contact}},
-
-{{custom_line}}
-
-Most real estate websites are brochures. We build lead engines — with property search, EMI calculators, instant inquiry forms, and WhatsApp integration.
-
-Happy to show you examples from {{city}}-based agencies.
-
-{{sender_name}}`,
-      },
-    ],
-  },
-};
 
 // ============================================================
 // BREVO API FUNCTIONS
@@ -507,7 +99,63 @@ const brevoGetEvents = async () => {
     return data.events || []
   } catch { return [] }
 }
+// ============================================================
+// GROQ AI — inbox score + spam-trigger analysis
+// VITE_INBOX_GROQ_KEY_1 / _2 / _3 — multiple keys rotate for extra headroom
+// ============================================================
 
+const GROQ_KEYS = [
+  import.meta.env.VITE_INBOX_GROQ_KEY_1 || "",
+  import.meta.env.VITE_INBOX_GROQ_KEY_2 || "",
+  import.meta.env.VITE_INBOX_GROQ_KEY_3 || "",
+].filter(Boolean)
+
+let groqKeyIdx = Math.floor(Math.random() * Math.max(GROQ_KEYS.length, 1))
+
+const groqAnalyzeEmail = async (subject, body) => {
+  if (GROQ_KEYS.length === 0) throw new Error("Koi VITE_INBOX_GROQ_KEY_* .env mein nahi mila")
+
+  const prompt = `You are an email deliverability expert. Analyze this cold outreach email and respond ONLY with valid JSON, no markdown, no preamble.
+
+Subject: ${subject}
+Body: ${body}
+
+Return exactly this JSON structure:
+{
+  "score": <number 0-100, chance of landing in primary inbox, higher is better>,
+  "criticalIssues": [<array of short strings, specific spam-trigger phrases or patterns found in THIS email, empty array if none>],
+  "suggestions": [<array of short, actionable improvement suggestions specific to THIS email's actual text>]
+}`
+
+  let lastError = null
+  for (let attempt = 0; attempt < GROQ_KEYS.length; attempt++) {
+    const key = GROQ_KEYS[groqKeyIdx % GROQ_KEYS.length]
+    groqKeyIdx++
+    try {
+      const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+        method: "POST",
+        headers: { "Authorization": `Bearer ${key}`, "Content-Type": "application/json" },
+        body: JSON.stringify({
+          model: "openai/gpt-oss-120b",
+          messages: [{ role: "user", content: prompt }],
+          temperature: 0.3,
+          response_format: { type: "json_object" },
+        }),
+      })
+      const data = await res.json()
+      if (!res.ok) {
+        if (res.status === 429) { lastError = new Error(data.error?.message || "Rate limited"); continue }
+        throw new Error(data.error?.message || `Groq error ${res.status}`)
+      }
+      const raw = data.choices?.[0]?.message?.content || "{}"
+      return JSON.parse(raw)
+    } catch (err) {
+      lastError = err
+      continue
+    }
+  }
+  throw lastError || new Error("Saari Groq keys fail ho gayi")
+}
 // ============================================================
 // TEMPLATE ENGINE
 // ============================================================
@@ -576,7 +224,8 @@ export default function EmailPage({ leads = [] }) {
 
   // ── Template state ──
   const [activeView, setActiveView] = useState("compose")
-  const [selectedIndustry, setSelectedIndustry] = useState(Object.keys(TEMPLATE_LIBRARY)[0])
+  const [templateLibrary, setTemplateLibrary] = useState(() => loadTemplateLibrary())
+  const [selectedIndustry, setSelectedIndustry] = useState(() => { const lib = loadTemplateLibrary(); return Object.keys(lib)[0] || "" })
   const [selectedCategory, setSelectedCategory] = useState("")
   const [selectedTemplateIdx, setSelectedTemplateIdx] = useState(0)
   const [subjectOverride, setSubjectOverride] = useState("")
@@ -588,6 +237,8 @@ export default function EmailPage({ leads = [] }) {
   const [addEmailInput, setAddEmailInput] = useState("")
   const [addNameInput, setAddNameInput] = useState("")
   const [addCompanyInput, setAddCompanyInput] = useState("")
+  const [addCityInput, setAddCityInput] = useState("")
+
   const [bulkPasteText, setBulkPasteText] = useState("")
   const [showBulkPaste, setShowBulkPaste] = useState(true)
 
@@ -598,8 +249,20 @@ export default function EmailPage({ leads = [] }) {
   const [scheduleDate, setScheduleDate] = useState("")
   const [scheduleTime, setScheduleTime] = useState("")
   const [rotateVariants, setRotateVariants] = useState(true) // randomize draft per recipient by default
-  const [sentLog, setSentLog] = useState([])
-  const [dailySentCount, setDailySentCount] = useState(0)
+const [sentLog, setSentLog] = useState(() => {
+  try { return JSON.parse(localStorage.getItem("email_sent_log") || "[]") } catch { return [] }
+})
+const [dailySentCount, setDailySentCount] = useState(() => {
+  try {
+    const saved = JSON.parse(localStorage.getItem("email_daily_count") || "null")
+    if (saved && saved.date === new Date().toDateString()) return saved.count
+    return 0
+  } catch { return 0 }
+})
+
+useEffect(() => {
+  try { localStorage.setItem("email_daily_count", JSON.stringify({ date: new Date().toDateString(), count: dailySentCount })) } catch {}
+}, [dailySentCount])
   const senderIdxRef = useRef(Math.floor(Math.random() * Math.max(senders.length, 1)))
 
   // ── Analytics ──
@@ -610,13 +273,18 @@ export default function EmailPage({ leads = [] }) {
 
   // ── Preview ──
   const [previewRecipient, setPreviewRecipient] = useState(null)
+  // ── AI Analysis ──
+  const [aiAnalysis, setAiAnalysis] = useState(null)
+  const [analyzingAi, setAnalyzingAi] = useState(false)
+  const [aiError, setAiError] = useState("")
+  const [lastAnalyzedContent, setLastAnalyzedContent] = useState(null) // {subject, body} jo last analyze hua tha
 
   const DAILY_LIMIT = 500
 
   // Derived
-  const categories = Object.keys(TEMPLATE_LIBRARY[selectedIndustry] || {})
+  const categories = Object.keys(templateLibrary[selectedIndustry] || {})
   const activeCategory = selectedCategory || categories[0] || ""
-  const templates = TEMPLATE_LIBRARY[selectedIndustry]?.[activeCategory] || []
+  const templates = templateLibrary[selectedIndustry]?.[activeCategory] || []
   const activeTemplate = templates[selectedTemplateIdx] || templates[0]
 
   // True if the person manually changed subject/body away from the selected
@@ -635,10 +303,96 @@ export default function EmailPage({ leads = [] }) {
     if (activeTemplate) { setSubjectOverride(activeTemplate.subject); setBodyOverride(activeTemplate.body) }
   }, [selectedTemplateIdx])
 
+  // ── Template Manager states ──
+  const [tmIndustryInput, setTmIndustryInput] = useState("")
+  const [tmSelectedIndustry, setTmSelectedIndustry] = useState("")
+  const [tmCategoryInput, setTmCategoryInput] = useState("")
+  const [tmSelectedCategory, setTmSelectedCategory] = useState("")
+  const [tmEditingVariant, setTmEditingVariant] = useState(null) // {industryKey, categoryKey, variantIdx}
+  const [tmVariantSubject, setTmVariantSubject] = useState("")
+  const [tmVariantBody, setTmVariantBody] = useState("")
+
+  // Save templateLibrary to localStorage whenever it changes
+  useEffect(() => { saveTemplateLibrary(templateLibrary) }, [templateLibrary])
+
+  // Template manager helpers
+  const tmAddIndustry = () => {
+    const name = tmIndustryInput.trim()
+    if (!name || templateLibrary[name]) return
+    const updated = { ...templateLibrary, [name]: {} }
+    setTemplateLibrary(updated)
+    setTmSelectedIndustry(name)
+    setTmIndustryInput("")
+  }
+
+  const tmDeleteIndustry = (ind) => {
+    if (!window.confirm(`Delete industry "${ind}" and all its templates?`)) return
+    const updated = { ...templateLibrary }
+    delete updated[ind]
+    setTemplateLibrary(updated)
+    if (tmSelectedIndustry === ind) setTmSelectedIndustry(Object.keys(updated)[0] || "")
+  }
+
+  const tmAddCategory = () => {
+    if (!tmSelectedIndustry || !tmCategoryInput.trim()) return
+    const name = tmCategoryInput.trim()
+    if (templateLibrary[tmSelectedIndustry]?.[name]) return
+    // Create 5 blank variants
+    const blankVariants = [1,2,3,4,5].map(i => ({
+      id: `${tmSelectedIndustry}_${name}_v${i}_${Date.now()}`,
+      subject: "",
+      body: "",
+    }))
+    const updated = {
+      ...templateLibrary,
+      [tmSelectedIndustry]: { ...templateLibrary[tmSelectedIndustry], [name]: blankVariants }
+    }
+    setTemplateLibrary(updated)
+    setTmSelectedCategory(name)
+    setTmCategoryInput("")
+    // Auto-open first variant for editing
+    setTmEditingVariant({ industryKey: tmSelectedIndustry, categoryKey: name, variantIdx: 0 })
+    setTmVariantSubject("")
+    setTmVariantBody("")
+  }
+
+  const tmDeleteCategory = (ind, cat) => {
+    if (!window.confirm(`Delete category "${cat}" and all its variants?`)) return
+    const updated = { ...templateLibrary, [ind]: { ...templateLibrary[ind] } }
+    delete updated[ind][cat]
+    setTemplateLibrary(updated)
+    if (tmSelectedCategory === cat) setTmSelectedCategory("")
+  }
+
+  const tmOpenVariant = (ind, cat, idx) => {
+    const variant = templateLibrary[ind]?.[cat]?.[idx]
+    if (!variant) return
+    setTmEditingVariant({ industryKey: ind, categoryKey: cat, variantIdx: idx })
+    setTmVariantSubject(variant.subject || "")
+    setTmVariantBody(variant.body || "")
+  }
+
+  const tmSaveVariant = () => {
+    if (!tmEditingVariant) return
+    const { industryKey, categoryKey, variantIdx } = tmEditingVariant
+    const updated = JSON.parse(JSON.stringify(templateLibrary))
+    updated[industryKey][categoryKey][variantIdx].subject = tmVariantSubject
+    updated[industryKey][categoryKey][variantIdx].body = tmVariantBody
+    setTemplateLibrary(updated)
+    // Also update compose view if currently viewing same industry/category
+    if (selectedIndustry === industryKey && activeCategory === categoryKey && selectedTemplateIdx === variantIdx) {
+      setSubjectOverride(tmVariantSubject)
+      setBodyOverride(tmVariantBody)
+    }
+  }
+
   // Save senders to localStorage when changed
   useEffect(() => {
     try { localStorage.setItem("email_senders", JSON.stringify(senders)) } catch {}
   }, [senders])
+  useEffect(() => {
+  try { localStorage.setItem("email_sent_log", JSON.stringify(sentLog)) } catch {}
+}, [sentLog])
 
   const addSender = () => {
     if (!newSenderEmail.trim() || !newSenderEmail.includes("@")) return
@@ -648,7 +402,24 @@ export default function EmailPage({ leads = [] }) {
   }
 
   const removeSender = (id) => setSenders(prev => prev.filter(s => s.id !== id))
+const runAiAnalysis = async () => {
+    if (!subjectOverride.trim() && !bodyOverride.trim()) return
+    setAnalyzingAi(true)
+    setAiError("")
+    try {
+      const result = await groqAnalyzeEmail(subjectOverride, bodyOverride)
+      setAiAnalysis(result)
+      setLastAnalyzedContent({ subject: subjectOverride, body: bodyOverride })
+    } catch (err) {
+      setAiError(err.message)
+      setAiAnalysis(null)
+    }
+    setAnalyzingAi(false)
+  }
 
+const isAlreadyAnalyzed = lastAnalyzedContent
+    ? lastAnalyzedContent.subject === subjectOverride && lastAnalyzedContent.body === bodyOverride
+    : false
   const getPreviewFor = (recipient, templateIdxOverride = null) => {
     const vars = {
       company: recipient.company || recipient.name || "Company",
@@ -729,10 +500,10 @@ export default function EmailPage({ leads = [] }) {
     // e.g. with 5 templates and 12 recipients: shuffle [0-4] fully, then
     // reshuffle [0-4] again, then partial — guarantees no two consecutive
     // recipients ever get the same draft, and every variant gets used evenly.
-    const buildVariantSequence = (count) => {
-      // User manually changed the editor's subject/body — that edit wins.
-      // Don't let randomization silently overwrite it with a stock template.
-      if (isManuallyEdited) return Array(count).fill(null)
+ const buildVariantSequence = (count) => {
+      // Toggle is the single source of truth. If it's ON, always rotate across
+      // variants regardless of any manual edits — editing a draft doesn't pause
+      // randomization anymore. If it's OFF, current editor content goes to everyone.
       if (!rotateVariants || templates.length === 0) return Array(count).fill(null)
       const seq = []
       while (seq.length < count) {
@@ -890,16 +661,105 @@ export default function EmailPage({ leads = [] }) {
 
   // Filter events for tracking tab
   const filteredEvents = trackingFilter === "all" ? events : events.filter(e => e.event === trackingFilter)
+// Per-recipient breakdown for the animated dashboard
+const perRecipientBreakdown = Object.values(eventsByEmailBatch).map(({ email, batchId, events: evs }) => {
+ // Per-sender health — one card + slice per verified sender email
+const senderStats = senders.map(sdr => {
+  const theirSends = sentLog.filter(log => log.sender === sdr.email && log.status === "sent")
+  const batchKeys = [...new Set(theirSends.map(log => `${log.email}__${log.batchId}`))]
+  let delivered = 0, opened = 0, clicked = 0, bounced = 0, spam = 0, unsub = 0
+  batchKeys.forEach(key => {
+    const evs = eventsByEmailBatch[key]?.events || []
+    if (evs.some(e => e.event === "delivered")) delivered++
+    if (evs.some(e => e.event === "opened")) opened++
+    if (evs.some(e => e.event === "clicked")) clicked++
+    if (evs.some(e => e.event === "bounced" || e.event === "hardBounce" || e.event === "softBounce")) bounced++
+    if (evs.some(e => e.event === "spam")) spam++
+    if (evs.some(e => e.event === "unsubscribed")) unsub++
+  })
+  const totalSent = theirSends.length
+  const openRate = delivered > 0 ? (opened / delivered) * 100 : 0
+  const bounceRate = totalSent > 0 ? (bounced / totalSent) * 100 : 0
+  const spamRate = delivered > 0 ? (spam / delivered) * 100 : 0
 
+  let score = 100
+  if (openRate < 5) score -= 30; else if (openRate < 15) score -= 15; else if (openRate < 20) score -= 5
+  if (bounceRate > 5) score -= 30; else if (bounceRate > 2) score -= 15; else if (bounceRate > 1) score -= 5
+  if (spamRate > 0.5) score -= 35; else if (spamRate > 0.1) score -= 20; else if (spamRate > 0.05) score -= 10
+  score = totalSent > 0 ? Math.max(0, Math.min(100, score)) : 100
+
+  const color = totalSent === 0 ? C.textDim : score >= 75 ? C.green : score >= 50 ? C.yellow : C.red
+  return { ...sdr, totalSent, delivered, opened, clicked, bounced, spam, unsub, openRate, bounceRate, spamRate, score, color }
+})
+const totalSentAll = senderStats.reduce((sum, s) => sum + s.totalSent, 0)
+  const isSpam = evs.some(e => e.event === "spam")
+  const isBounced = evs.some(e => e.event === "bounced" || e.event === "hardBounce" || e.event === "softBounce")
+  const isDelivered = evs.some(e => e.event === "delivered")
+  const isOpened = evs.some(e => e.event === "opened")
+  const isClicked = evs.some(e => e.event === "clicked")
+  const isUnsub = evs.some(e => e.event === "unsubscribed")
+  let riskLevel = "safe"
+  if (isSpam) riskLevel = "critical"
+  else if (isBounced || isUnsub) riskLevel = "warning"
+  else if (!isDelivered) riskLevel = "pending"
+  const lastSeen = evs.reduce((latest, e) => (!latest || new Date(e.date) > new Date(latest)) ? e.date : latest, null)
+  return { email, batchId, isDelivered, isOpened, isClicked, isSpam, isBounced, isUnsub, riskLevel, lastSeen }
+}).sort((a, b) => new Date(b.lastSeen || 0) - new Date(a.lastSeen || 0))
+
+const riskCounts = perRecipientBreakdown.reduce((acc, r) => {
+  acc[r.riskLevel] = (acc[r.riskLevel] || 0) + 1
+  return acc
+}, {})
   // ── RENDER ──
+const senderStats = senders.map(sdr => {
+  const theirSends = sentLog.filter(log => log.sender === sdr.email && log.status === "sent")
+  const batchKeys = [...new Set(theirSends.map(log => `${log.email}__${log.batchId}`))]
+  let delivered = 0, opened = 0, clicked = 0, bounced = 0, spam = 0, unsub = 0
+  batchKeys.forEach(key => {
+    const evs = eventsByEmailBatch[key]?.events || []
+    if (evs.some(e => e.event === "delivered")) delivered++
+    if (evs.some(e => e.event === "opened")) opened++
+    if (evs.some(e => e.event === "clicked")) clicked++
+    if (evs.some(e => e.event === "bounced" || e.event === "hardBounce" || e.event === "softBounce")) bounced++
+    if (evs.some(e => e.event === "spam")) spam++
+    if (evs.some(e => e.event === "unsubscribed")) unsub++
+  })
+  const totalSent = theirSends.length
+  const openRate = delivered > 0 ? (opened / delivered) * 100 : 0
+  const bounceRate = totalSent > 0 ? (bounced / totalSent) * 100 : 0
+  const spamRate = delivered > 0 ? (spam / delivered) * 100 : 0
 
-  return (
+  let score = 100
+  if (openRate < 5) score -= 30; else if (openRate < 15) score -= 15; else if (openRate < 20) score -= 5
+  if (bounceRate > 5) score -= 30; else if (bounceRate > 2) score -= 15; else if (bounceRate > 1) score -= 5
+  if (spamRate > 0.5) score -= 35; else if (spamRate > 0.1) score -= 20; else if (spamRate > 0.05) score -= 10
+  score = totalSent > 0 ? Math.max(0, Math.min(100, score)) : 100
+
+  const color = totalSent === 0 ? C.textDim : score >= 75 ? C.green : score >= 50 ? C.yellow : C.red
+  return { ...sdr, totalSent, delivered, opened, clicked, bounced, spam, unsub, openRate, bounceRate, spamRate, score, color }
+})
+const totalSentAll = senderStats.reduce((sum, s) => sum + s.totalSent, 0)
+
+// ── RENDER ──
+return (
+
+    
     <div style={{ background: C.bg, minHeight: "100vh", color: C.text, fontFamily: "Inter,sans-serif", fontSize: 14 }}>
-
+    <style>{`
+      @keyframes fadeSlideIn {
+        from { opacity: 0; transform: translateY(8px); }
+        to { opacity: 1; transform: translateY(0); }
+      }
+      @keyframes pulseGlow {
+        0%, 100% { box-shadow: 0 0 0 0 rgba(239,68,68,0.4); }
+        50% { box-shadow: 0 0 0 6px rgba(239,68,68,0); }
+      }
+    `}</style>
       {/* Top nav */}
       <div style={{ borderBottom: `1px solid ${C.border}`, padding: "0 24px", display: "flex", alignItems: "center", gap: 4, background: C.surface }}>
         {[
           { id: "compose", label: "✍️ Compose & Send" },
+          { id: "templates", label: "📚 My Templates" },
           { id: "tracking", label: `👁 Per-Email Tracking` },
           { id: "analytics", label: "📊 Analytics" },
           { id: "senders", label: `📮 Senders (${senders.length})` },
@@ -931,7 +791,7 @@ export default function EmailPage({ leads = [] }) {
             <div style={{ padding: 16, borderBottom: `1px solid ${C.border}` }}>
               <div style={{ fontSize: 11, color: C.textMuted, marginBottom: 8, textTransform: "uppercase", letterSpacing: 1 }}>Industry</div>
               <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
-                {Object.keys(TEMPLATE_LIBRARY).map(ind => (
+                {Object.keys(templateLibrary).map(ind => (
                   <button key={ind} onClick={() => { setSelectedIndustry(ind); setSelectedCategory(""); setSelectedTemplateIdx(0) }} style={{
                     padding: "5px 10px", borderRadius: 6,
                     border: `1px solid ${selectedIndustry === ind ? C.accent : C.border2}`,
@@ -1047,6 +907,8 @@ export default function EmailPage({ leads = [] }) {
                       style={{ background: C.card, border: `1px solid ${C.border2}`, color: C.text, padding: "7px 10px", borderRadius: 6, fontSize: 12 }} />
                     <input placeholder="Company" value={addCompanyInput} onChange={e => setAddCompanyInput(e.target.value)}
                       style={{ background: C.card, border: `1px solid ${C.border2}`, color: C.text, padding: "7px 10px", borderRadius: 6, fontSize: 12 }} />
+                      <input placeholder="City" value={addCityInput} onChange={e => setAddCityInput(e.target.value)}
+  style={{ background: C.card, border: `1px solid ${C.border2}`, color: C.text, padding: "7px 10px", borderRadius: 6, fontSize: 12 }} />
                     <button onClick={addManualRecipient} style={{ background: C.accentDim, border: `1px solid ${C.accent}44`, color: C.accent, padding: 7, borderRadius: 6, cursor: "pointer", fontSize: 12 }}>+ Add Recipient</button>
                   </div>
                 )}
@@ -1078,6 +940,7 @@ export default function EmailPage({ leads = [] }) {
           </div>
 
           {/* Right — editor */}
+          
           <div style={{ display: "flex", flexDirection: "column", overflowY: "auto" }}>
             <div style={{ padding: "20px 24px 0" }}>
               <div style={{ fontSize: 11, color: C.textMuted, marginBottom: 6, textTransform: "uppercase", letterSpacing: 1 }}>Subject</div>
@@ -1091,25 +954,85 @@ export default function EmailPage({ leads = [] }) {
               <textarea value={bodyOverride} onChange={e => setBodyOverride(e.target.value)}
                 style={{ width: "100%", height: 340, background: C.card, border: `1px solid ${C.border2}`, color: C.text, padding: 14, borderRadius: 8, fontSize: 13, lineHeight: 1.7, resize: "vertical", boxSizing: "border-box", fontFamily: "monospace" }} />
             </div>
+            {/* AI Inbox Score & Suggestions */}
+<div style={{ padding: "0 24px 16px" }}>
+<button onClick={runAiAnalysis} disabled={analyzingAi || (!subjectOverride.trim() && !bodyOverride.trim()) || isAlreadyAnalyzed} style={{    display: "flex", alignItems: "center", gap: 8, padding: "9px 18px", borderRadius: 8,
+    border: `1px solid ${C.accent}44`, background: C.accentDim, color: C.accent,
+    cursor: analyzingAi ? "wait" : "pointer", fontSize: 13, fontWeight: 600,
+  }}>
+    {analyzingAi ? "🧠 Analyzing..." : isAlreadyAnalyzed ? "✅ Analyzed — edit to re-check" : "🧠 Check Inbox Score & Get Suggestions"}
+  </button>
 
+  {aiError && (
+    <div style={{ marginTop: 10, fontSize: 12, color: C.red, background: C.redDim, padding: "8px 12px", borderRadius: 6 }}>
+      {aiError}
+    </div>
+  )}
+
+  {aiAnalysis && !analyzingAi && (
+    <div style={{ marginTop: 12, background: C.card, border: `1px solid ${C.border2}`, borderRadius: 10, padding: 16, animation: "fadeSlideIn 0.3s ease both" }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 16, marginBottom: 14 }}>
+        <div style={{ textAlign: "center" }}>
+          <div style={{
+            fontSize: 36, fontWeight: 900, lineHeight: 1,
+            color: aiAnalysis.score >= 75 ? C.green : aiAnalysis.score >= 50 ? C.yellow : C.red,
+          }}>{aiAnalysis.score}</div>
+          <div style={{ fontSize: 10, color: C.textDim, marginTop: 2 }}>Primary Inbox Score</div>
+        </div>
+        <div style={{ flex: 1, background: C.border, borderRadius: 6, height: 8, overflow: "hidden" }}>
+          <div style={{
+            width: `${aiAnalysis.score}%`, height: "100%", borderRadius: 6, transition: "width 0.6s ease",
+            background: aiAnalysis.score >= 75 ? C.green : aiAnalysis.score >= 50 ? C.yellow : C.red,
+          }} />
+        </div>
+      </div>
+
+      {aiAnalysis.criticalIssues?.length > 0 && (
+        <div style={{ marginBottom: 12 }}>
+          <div style={{ fontSize: 11, color: C.red, fontWeight: 700, marginBottom: 6, textTransform: "uppercase", letterSpacing: 0.5 }}>🚨 Critical Points</div>
+          {aiAnalysis.criticalIssues.map((issue, i) => (
+            <div key={i} style={{ fontSize: 12, color: C.text, background: C.redDim, padding: "6px 10px", borderRadius: 6, marginBottom: 4 }}>{issue}</div>
+          ))}
+        </div>
+      )}
+
+      {aiAnalysis.suggestions?.length > 0 && (
+        <div>
+          <div style={{ fontSize: 11, color: C.accent, fontWeight: 700, marginBottom: 6, textTransform: "uppercase", letterSpacing: 0.5 }}>💡 Suggestions</div>
+          {aiAnalysis.suggestions.map((s, i) => (
+            <div key={i} style={{ fontSize: 12, color: C.text, background: C.accentDim, padding: "6px 10px", borderRadius: 6, marginBottom: 4 }}>{s}</div>
+          ))}
+        </div>
+      )}
+    </div>
+  )}
+</div>
+{/* Variables reference — helps new users avoid typos like {{Customline}} */}
+<div style={{ padding: "0 24px 16px" }}>
+  <div style={{ background: C.card, border: `1px solid ${C.border2}`, borderRadius: 8, padding: "12px 16px" }}>
+    <div style={{ fontSize: 11, color: C.textMuted, marginBottom: 8, textTransform: "uppercase", letterSpacing: 1 }}>
+      📌 Available Variables (case-sensitive, exact spelling zaroori hai)
+    </div>
+    <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))", gap: 8 }}>
+      {[
+        { code: "{{company}}", desc: "Recipient ka company name" },
+        { code: "{{contact}}", desc: "Recipient ka naam" },
+        { code: "{{city}}", desc: "Recipient ki city" },
+        { code: "{{custom_line}}", desc: "Us recipient ke liye likha custom line" },
+        { code: "{{sender_name}}", desc: "Jis sender se bhej rahe ho uska naam" },
+      ].map(v => (
+        <div key={v.code} style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+          <code style={{
+            fontSize: 12, fontWeight: 700, color: C.accent, background: C.accentDim,
+            padding: "3px 8px", borderRadius: 5, width: "fit-content", fontFamily: "monospace",
+          }}>{v.code}</code>
+          <span style={{ fontSize: 11, color: C.textMuted }}>{v.desc}</span>
+        </div>
+      ))}
+    </div>
+  </div>
+</div>
             {/* Preview panel */}
-            {previewRecipient && (() => {
-              const p = getPreviewFor(previewRecipient)
-              return (
-                <div style={{ margin: "0 24px 16px", background: C.card, border: `1px solid ${C.border2}`, borderRadius: 10, overflow: "hidden" }}>
-                  <div style={{ padding: "10px 16px", borderBottom: `1px solid ${C.border}`, display: "flex", justifyContent: "space-between" }}>
-                    <div style={{ fontSize: 12, fontWeight: 600 }}>Preview — {previewRecipient.company || previewRecipient.email}</div>
-                    <button onClick={() => setPreviewRecipient(null)} style={{ background: "none", border: "none", color: C.textMuted, cursor: "pointer" }}>✕</button>
-                  </div>
-                  <div style={{ padding: 16 }}>
-                    <div style={{ fontSize: 11, color: C.textMuted, marginBottom: 4 }}>SUBJECT</div>
-                    <div style={{ fontWeight: 700, marginBottom: 14 }}>{p.subject}</div>
-                    <div style={{ background: "#fff", borderRadius: 6, padding: 16 }} dangerouslySetInnerHTML={{ __html: textToHtml(p.body) }} />
-                  </div>
-                </div>
-              )
-            })()}
-
             {/* Send bar */}
             <div style={{ padding: "16px 24px 24px", borderTop: `1px solid ${C.border}` }}>
 
@@ -1144,9 +1067,14 @@ export default function EmailPage({ leads = [] }) {
                   🎲 Randomize draft per recipient {rotateVariants && templates.length > 1 ? `(rotating across all ${templates.length} variants)` : ""}
                 </span>
                 {!rotateVariants && <span style={{ color: C.yellow, fontSize: 11 }}>⚠️ everyone gets the exact same subject/body — riskier for spam filters</span>}
-                {isManuallyEdited && (
+               {isManuallyEdited && !rotateVariants && (
                   <span style={{ color: C.cyan, fontSize: 11, background: C.cyanDim, padding: "3px 8px", borderRadius: 5 }}>
-                    ✏️ You edited this draft — your version will be used for everyone (randomization paused)
+                    ✏️ Randomize toggle off hai — yeh edited version hi sabko jaayega
+                  </span>
+                )}
+                {isManuallyEdited && rotateVariants && (
+                  <span style={{ color: C.yellow, fontSize: 11, background: C.yellowDim, padding: "3px 8px", borderRadius: 5 }}>
+                    ℹ️ Draft edit hua hai, lekin Randomize ON hai — sabhi variants rotate hongi (yeh edit sirf abhi ke liye editor mein hai)
                   </span>
                 )}
               </div>
@@ -1284,74 +1212,204 @@ export default function EmailPage({ leads = [] }) {
         </div>
       )}
 
-      {/* ── ANALYTICS ── */}
       {activeView === "analytics" && (
-        <div style={{ padding: 24 }}>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
-            <h2 style={{ margin: 0, fontWeight: 700, fontSize: 20 }}>Analytics (last 7 days)</h2>
-            <button onClick={loadStats} disabled={loadingStats} style={{ padding: "8px 16px", borderRadius: 7, border: `1px solid ${C.border2}`, background: C.card, color: C.text, cursor: "pointer", fontSize: 13 }}>
-              {loadingStats ? "Loading..." : "🔄 Refresh"}
-            </button>
+  <div style={{ padding: 24 }}>
+    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
+      <h2 style={{ margin: 0, fontWeight: 700, fontSize: 20 }}>Analytics (last 7 days)</h2>
+      <button onClick={loadStats} disabled={loadingStats} style={{ padding: "8px 16px", borderRadius: 7, border: `1px solid ${C.border2}`, background: C.card, color: C.text, cursor: "pointer", fontSize: 13 }}>
+        {loadingStats ? "Loading..." : "🔄 Refresh"}
+      </button>
+    </div>
+
+    {!BREVO_API_KEY ? (
+      <div style={{ background: C.yellowDim, border: `1px solid ${C.yellow}44`, borderRadius: 10, padding: 24, color: C.yellow, fontSize: 13 }}>
+        Add <code>VITE_BREVO_API_KEY=your-key</code> to .env. Get it at <b>app.brevo.com</b> → Settings → API Keys.
+      </div>
+    ) : !stats ? (
+      <div style={{ color: C.textMuted, textAlign: "center", padding: 60 }}>{loadingStats ? "Loading..." : "Click Refresh"}</div>
+    ) : (
+      <>
+        {/* Health score */}
+        <div style={{ background: C.card, border: `2px solid ${healthColor}44`, borderRadius: 12, padding: 20, marginBottom: 16, display: "flex", gap: 24, alignItems: "center", animation: "fadeSlideIn 0.4s ease both" }}>
+          <div style={{ textAlign: "center", minWidth: 80 }}>
+            <div style={{ fontSize: 52, fontWeight: 900, color: healthColor, lineHeight: 1 }}>{healthScore}</div>
+            <div style={{ fontSize: 11, color: healthColor, fontWeight: 700, marginTop: 4 }}>{healthScore >= 75 ? "HEALTHY" : healthScore >= 50 ? "AT RISK" : "POOR"}</div>
+            <div style={{ fontSize: 10, color: C.textMuted }}>Inbox Health</div>
+            <div style={{ fontSize: 9, color: C.textDim, marginTop: 2 }}>(combined across all senders)</div>
+
           </div>
-
-          {!BREVO_API_KEY ? (
-            <div style={{ background: C.yellowDim, border: `1px solid ${C.yellow}44`, borderRadius: 10, padding: 24, color: C.yellow, fontSize: 13 }}>
-              Add <code>VITE_BREVO_API_KEY=your-key</code> to .env. Get it at <b>app.brevo.com</b> → Settings → API Keys.
+          <div style={{ flex: 1 }}>
+            <div style={{ background: C.border, borderRadius: 6, height: 8, marginBottom: 10, overflow: "hidden" }}>
+              <div style={{ background: healthColor, width: `${healthScore}%`, height: "100%", borderRadius: 6, transition: "width 0.8s ease" }} />
             </div>
-          ) : !stats ? (
-            <div style={{ color: C.textMuted, textAlign: "center", padding: 60 }}>{loadingStats ? "Loading..." : "Click Refresh"}</div>
+            {warnings.map((w, i) => (
+              <div key={i} style={{ fontSize: 12, padding: "7px 12px", borderRadius: 7, marginBottom: 6,
+                background: w.level === "red" ? C.redDim : w.level === "yellow" ? C.yellowDim : C.greenDim,
+                color: w.level === "red" ? C.red : w.level === "yellow" ? C.yellow : C.green,
+              }}>{w.msg}</div>
+            ))}
+          </div>
+        </div>
+
+        {/* Risk summary strip — quick visual of spam chances across all recipients */}
+        <div style={{ display: "flex", gap: 10, marginBottom: 16 }}>
+          {[
+            { key: "critical", label: "🚨 Spam Risk", color: C.red, bg: C.redDim },
+            { key: "warning", label: "⚠️ Bounced/Unsub", color: C.yellow, bg: C.yellowDim },
+            { key: "pending", label: "⏳ Not Delivered Yet", color: C.textMuted, bg: "#ffffff08" },
+            { key: "safe", label: "✅ Healthy", color: C.green, bg: C.greenDim },
+          ].map((r, idx) => (
+            <div key={r.key} style={{
+              flex: 1, background: r.bg, border: `1px solid ${r.color}33`, borderRadius: 10, padding: "14px 16px",
+              animation: `fadeSlideIn 0.4s ease ${idx * 0.08}s both`,
+            }}>
+              <div style={{ fontSize: 24, fontWeight: 800, color: r.color }}>{riskCounts[r.key] || 0}</div>
+              <div style={{ fontSize: 11, color: r.color, marginTop: 2 }}>{r.label}</div>
+            </div>
+          ))}
+        </div>
+        {/* Sender Health — pie chart + per-sender breakdown */}
+<div style={{ background: C.card, border: `1px solid ${C.border2}`, borderRadius: 12, padding: 20, marginBottom: 16, display: "flex", gap: 28, alignItems: "flex-start", flexWrap: "wrap" }}>
+
+  {/* Donut chart — send distribution across senders, sliced by that sender's health color */}
+  <div style={{ display: "flex", flexDirection: "column", alignItems: "center", minWidth: 160 }}>
+    <div style={{ fontSize: 11, color: C.textMuted, marginBottom: 10, textTransform: "uppercase", letterSpacing: 1 }}>Send Distribution</div>
+    {totalSentAll === 0 ? (
+      <div style={{ width: 140, height: 140, borderRadius: "50%", border: `10px solid ${C.border2}`, display: "flex", alignItems: "center", justifyContent: "center", color: C.textDim, fontSize: 11, textAlign: "center" }}>
+        No sends yet
+      </div>
+    ) : (
+      <svg width="140" height="140" viewBox="0 0 140 140" style={{ transform: "rotate(-90deg)" }}>
+        {(() => {
+          const r = 55, cx = 70, cy = 70, circumference = 2 * Math.PI * r
+          let cumulative = 0
+          return senderStats.filter(s => s.totalSent > 0).map((s, i) => {
+            const fraction = s.totalSent / totalSentAll
+            const dash = fraction * circumference
+            const offset = -cumulative
+            cumulative += dash
+            return (
+              <circle
+                key={s.id} cx={cx} cy={cy} r={r} fill="none"
+                stroke={s.color} strokeWidth="18"
+                strokeDasharray={`${dash} ${circumference - dash}`}
+                strokeDashoffset={offset}
+                style={{ transition: "stroke-dasharray 0.6s ease" }}
+              />
+            )
+          })
+        })()}
+      </svg>
+    )}
+    <div style={{ marginTop: -95, fontSize: 20, fontWeight: 800, pointerEvents: "none" }}>{totalSentAll}</div>
+    <div style={{ marginTop: 65, fontSize: 10, color: C.textDim, pointerEvents: "none" }}>total sent</div>
+  </div>
+
+  {/* Per-sender cards */}
+  <div style={{ flex: 1, minWidth: 260, display: "flex", flexDirection: "column", gap: 8 }}>
+    <div style={{ fontSize: 11, color: C.textMuted, marginBottom: 2, textTransform: "uppercase", letterSpacing: 1 }}>Per-Sender Health</div>
+    {senderStats.length === 0 ? (
+      <div style={{ color: C.textDim, fontSize: 12 }}>Koi sender add nahi kiya abhi.</div>
+    ) : senderStats.map((s, idx) => (
+      <div key={s.id} style={{
+        display: "flex", alignItems: "center", gap: 12, padding: "10px 14px", borderRadius: 8,
+        background: C.surface, border: `1px solid ${s.color}44`,
+        animation: `fadeSlideIn 0.35s ease ${idx * 0.06}s both`,
+      }}>
+        <div style={{ width: 10, height: 10, borderRadius: "50%", background: s.color, flexShrink: 0 }} />
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ fontSize: 12, fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{s.email}</div>
+          <div style={{ fontSize: 10, color: C.textDim, display: "flex", gap: 10, flexWrap: "wrap", marginTop: 2 }}>
+            <span>{s.totalSent} sent</span>
+            <span>{s.delivered} delivered</span>
+            <span style={{ color: C.accent }}>{s.opened} opened ({s.openRate.toFixed(0)}%)</span>
+            {s.bounced > 0 && <span style={{ color: C.yellow }}>{s.bounced} bounced</span>}
+            {s.spam > 0 && <span style={{ color: C.red, fontWeight: 700 }}>{s.spam} spam 🚨</span>}
+          </div>
+        </div>
+        <div style={{ textAlign: "center", flexShrink: 0 }}>
+          <div style={{ fontSize: 18, fontWeight: 800, color: s.color, lineHeight: 1 }}>{s.score}</div>
+          <div style={{ fontSize: 9, color: C.textDim }}>score</div>
+        </div>
+      </div>
+    ))}
+  </div>
+</div>
+
+        {/* Stat cards */}
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(145px, 1fr))", gap: 10, marginBottom: 16 }}>
+          {[
+            { label: "Sent", value: sent, sub: "requests", color: C.textMuted },
+            { label: "Delivered", value: delivered, sub: `${delivered > 0 ? ((delivered/sent)*100).toFixed(1) : 0}%`, color: C.green },
+            { label: "Opened", value: opened, sub: `${openRate.toFixed(1)}% of delivered`, color: C.accent },
+            { label: "Clicked", value: clicked, sub: `${opened > 0 ? ((clicked/opened)*100).toFixed(1) : 0}% of opened`, color: C.cyan },
+            { label: "Bounced", value: bounced, sub: `${bounceRate.toFixed(1)}%`, color: bounceRate > 2 ? C.red : C.textMuted },
+            { label: "Spam Reports", value: spam, sub: `${spamRate.toFixed(3)}%`, color: spam > 0 ? C.red : C.textMuted },
+            { label: "Unsubscribed", value: stats?.unsubscribed || 0, sub: "opt-outs", color: C.textMuted },
+          ].map((s, idx) => (
+            <div key={s.label} style={{
+              background: C.card, border: `1px solid ${C.border2}`, borderRadius: 10, padding: "14px 16px",
+              animation: `fadeSlideIn 0.4s ease ${idx * 0.05}s both`,
+            }}>
+              <div style={{ fontSize: 10, color: C.textMuted, marginBottom: 4, textTransform: "uppercase", letterSpacing: 1 }}>{s.label}</div>
+              <div style={{ fontSize: 28, fontWeight: 800, color: s.color, lineHeight: 1 }}>{s.value}</div>
+              <div style={{ fontSize: 11, color: C.textDim, marginTop: 4 }}>{s.sub}</div>
+            </div>
+          ))}
+        </div>
+
+        {/* Per-recipient breakdown — every mail, its status, and a direct Gmail link */}
+        <div style={{ background: C.card, border: `1px solid ${C.border2}`, borderRadius: 10, padding: 16, marginBottom: 16 }}>
+          <div style={{ fontWeight: 700, marginBottom: 12, fontSize: 13 }}>📋 Per-Recipient Breakdown ({perRecipientBreakdown.length})</div>
+          {perRecipientBreakdown.length === 0 ? (
+            <div style={{ color: C.textDim, fontSize: 12, textAlign: "center", padding: 20 }}>Koi data nahi abhi — email bhejo, phir yahan refresh karo.</div>
           ) : (
-            <>
-              {/* Health score */}
-              <div style={{ background: C.card, border: `2px solid ${healthColor}44`, borderRadius: 12, padding: 20, marginBottom: 16, display: "flex", gap: 24, alignItems: "center" }}>
-                <div style={{ textAlign: "center", minWidth: 80 }}>
-                  <div style={{ fontSize: 52, fontWeight: 900, color: healthColor, lineHeight: 1 }}>{healthScore}</div>
-                  <div style={{ fontSize: 11, color: healthColor, fontWeight: 700, marginTop: 4 }}>{healthScore >= 75 ? "HEALTHY" : healthScore >= 50 ? "AT RISK" : "POOR"}</div>
-                  <div style={{ fontSize: 10, color: C.textMuted }}>Inbox Health</div>
-                </div>
-                <div style={{ flex: 1 }}>
-                  <div style={{ background: C.border, borderRadius: 6, height: 8, marginBottom: 10, overflow: "hidden" }}>
-                    <div style={{ background: healthColor, width: `${healthScore}%`, height: "100%", borderRadius: 6 }} />
+            <div style={{ display: "flex", flexDirection: "column", gap: 6, maxHeight: 420, overflowY: "auto" }}>
+              {perRecipientBreakdown.map((r, i) => (
+                <div key={`${r.email}_${r.batchId}`} style={{
+                  display: "flex", alignItems: "center", gap: 10, padding: "10px 12px", borderRadius: 8,
+                  background: C.surface, border: `1px solid ${r.riskLevel === "critical" ? C.red + "44" : C.border2}`,
+                  animation: `fadeSlideIn 0.3s ease ${Math.min(i * 0.03, 0.6)}s both`,
+                }}>
+                  <div style={{
+                    width: 9, height: 9, borderRadius: "50%", flexShrink: 0,
+                    background: r.riskLevel === "critical" ? C.red : r.riskLevel === "warning" ? C.yellow : r.riskLevel === "pending" ? C.textDim : C.green,
+                    animation: r.riskLevel === "critical" ? "pulseGlow 1.5s infinite" : "none",
+                  }} />
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: 12, fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.email}</div>
+                    <div style={{ fontSize: 10, color: C.textDim }}>{r.lastSeen ? new Date(r.lastSeen).toLocaleString() : "—"}</div>
                   </div>
-                  {warnings.map((w, i) => (
-                    <div key={i} style={{ fontSize: 12, padding: "7px 12px", borderRadius: 7, marginBottom: 6,
-                      background: w.level === "red" ? C.redDim : w.level === "yellow" ? C.yellowDim : C.greenDim,
-                      color: w.level === "red" ? C.red : w.level === "yellow" ? C.yellow : C.green,
-                    }}>{w.msg}</div>
-                  ))}
-                </div>
-              </div>
-
-              {/* Stat cards */}
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(145px, 1fr))", gap: 10, marginBottom: 16 }}>
-                {[
-                  { label: "Sent", value: sent, sub: "requests", color: C.textMuted },
-                  { label: "Delivered", value: delivered, sub: `${delivered > 0 ? ((delivered/sent)*100).toFixed(1) : 0}%`, color: C.green },
-                  { label: "Opened", value: opened, sub: `${openRate.toFixed(1)}% of delivered`, color: C.accent },
-                  { label: "Clicked", value: clicked, sub: `${opened > 0 ? ((clicked/opened)*100).toFixed(1) : 0}% of opened`, color: C.cyan },
-                  { label: "Bounced", value: bounced, sub: `${bounceRate.toFixed(1)}%`, color: bounceRate > 2 ? C.red : C.textMuted },
-                  { label: "Spam Reports", value: spam, sub: `${spamRate.toFixed(3)}%`, color: spam > 0 ? C.red : C.textMuted },
-                  { label: "Unsubscribed", value: stats?.unsubscribed || 0, sub: "opt-outs", color: C.textMuted },
-                ].map(s => (
-                  <div key={s.label} style={{ background: C.card, border: `1px solid ${C.border2}`, borderRadius: 10, padding: "14px 16px" }}>
-                    <div style={{ fontSize: 10, color: C.textMuted, marginBottom: 4, textTransform: "uppercase", letterSpacing: 1 }}>{s.label}</div>
-                    <div style={{ fontSize: 28, fontWeight: 800, color: s.color, lineHeight: 1 }}>{s.value}</div>
-                    <div style={{ fontSize: 11, color: C.textDim, marginTop: 4 }}>{s.sub}</div>
+                  <div style={{ display: "flex", gap: 5, flexWrap: "wrap", justifyContent: "flex-end" }}>
+                    {r.isDelivered && <span style={{ fontSize: 10, padding: "2px 7px", borderRadius: 4, background: C.greenDim, color: C.green }}>✓ Delivered</span>}
+                    {r.isOpened && <span style={{ fontSize: 10, padding: "2px 7px", borderRadius: 4, background: C.accentDim, color: C.accent }}>👁 Opened</span>}
+                    {r.isClicked && <span style={{ fontSize: 10, padding: "2px 7px", borderRadius: 4, background: C.cyanDim, color: C.cyan }}>🖱 Clicked</span>}
+                    {r.isSpam && <span style={{ fontSize: 10, padding: "2px 7px", borderRadius: 4, background: C.redDim, color: C.red, fontWeight: 700 }}>🚨 Spam</span>}
+                    {r.isBounced && <span style={{ fontSize: 10, padding: "2px 7px", borderRadius: 4, background: C.yellowDim, color: C.yellow }}>⚠️ Bounced</span>}
+                    {r.isUnsub && <span style={{ fontSize: 10, padding: "2px 7px", borderRadius: 4, background: C.yellowDim, color: C.yellow }}>🚫 Unsub</span>}
                   </div>
-                ))}
-              </div>
-
-              {/* Info box */}
-              <div style={{ background: "#ffffff06", border: `1px solid ${C.border2}`, borderRadius: 10, padding: 16, fontSize: 12, color: C.textMuted, lineHeight: 1.8 }}>
-                <div style={{ fontWeight: 700, color: C.text, marginBottom: 6 }}>ℹ️ About spam tracking</div>
-                <b style={{ color: C.text }}>What Brevo tracks:</b> When someone actively clicks "Report Spam" in Gmail/Outlook (via feedback loop). Also tracks hard bounces (email doesn't exist) and soft bounces (inbox full).<br/>
-                <b style={{ color: C.text }}>What can't be tracked:</b> Gmail/Outlook silently moving mail to spam folder — this is invisible to all ESPs including Brevo.<br/>
-                <b style={{ color: C.text }}>Key signal:</b> If open rate drops below 5% on a fresh list → your mails are likely landing in spam/promotions. Go to Per-Email Tracking tab for individual details.
-              </div>
-            </>
+                  
+                  <a  href={`https://mail.google.com/mail/u/0/#search/from%3A${encodeURIComponent(r.email)}+OR+to%3A${encodeURIComponent(r.email)}`}
+                    target="_blank" rel="noopener noreferrer"
+                    style={{ fontSize: 10, color: C.accent, textDecoration: "none", whiteSpace: "nowrap", flexShrink: 0, border: `1px solid ${C.accent}44`, padding: "3px 8px", borderRadius: 5 }}
+                  >📬 Gmail</a>
+                </div>
+              ))}
+            </div>
           )}
         </div>
-      )}
+
+        {/* Info box */}
+        <div style={{ background: "#ffffff06", border: `1px solid ${C.border2}`, borderRadius: 10, padding: 16, fontSize: 12, color: C.textMuted, lineHeight: 1.8 }}>
+          <div style={{ fontWeight: 700, color: C.text, marginBottom: 6 }}>ℹ️ About spam tracking</div>
+          <b style={{ color: C.text }}>What Brevo tracks:</b> When someone actively clicks "Report Spam" in Gmail/Outlook (via feedback loop). Also tracks hard bounces (email doesn't exist) and soft bounces (inbox full).<br/>
+          <b style={{ color: C.text }}>What can't be tracked:</b> Gmail/Outlook silently moving mail to spam folder — this is invisible to all ESPs including Brevo.<br/>
+          <b style={{ color: C.text }}>Key signal:</b> If open rate drops below 5% on a fresh list → your mails are likely landing in spam/promotions.
+        </div>
+      </>
+    )}
+  </div>
+)}
 
       {/* ── SENDERS MANAGEMENT ── */}
       {activeView === "senders" && (
@@ -1408,6 +1466,169 @@ export default function EmailPage({ leads = [] }) {
         </div>
       )}
 
+      {/* ── TEMPLATE MANAGER ── */}
+      {activeView === "templates" && (
+        <div style={{ display: "grid", gridTemplateColumns: "220px 220px 1fr", height: "calc(100vh - 49px)" }}>
+
+          {/* Column 1 — Industries */}
+          <div style={{ borderRight: `1px solid ${C.border}`, overflowY: "auto", background: C.surface }}>
+            <div style={{ padding: 14, borderBottom: `1px solid ${C.border}` }}>
+              <div style={{ fontSize: 11, color: C.textMuted, textTransform: "uppercase", letterSpacing: 1, marginBottom: 10 }}>Industries</div>
+              <div style={{ display: "flex", gap: 6 }}>
+                <input value={tmIndustryInput} onChange={e => setTmIndustryInput(e.target.value)}
+                  onKeyDown={e => e.key === "Enter" && tmAddIndustry()}
+                  placeholder="New industry..."
+                  style={{ flex: 1, background: C.card, border: `1px solid ${C.border2}`, color: C.text, padding: "6px 9px", borderRadius: 6, fontSize: 12 }} />
+                <button onClick={tmAddIndustry} style={{ background: C.accent, border: "none", color: "#fff", padding: "6px 10px", borderRadius: 6, cursor: "pointer", fontSize: 13, fontWeight: 700 }}>+</button>
+              </div>
+            </div>
+            <div style={{ padding: 10 }}>
+              {Object.keys(templateLibrary).length === 0 ? (
+                <div style={{ color: C.textDim, fontSize: 12, padding: "20px 10px", textAlign: "center" }}>
+                  Koi industry nahi — upar add karo<br/>
+                  <span style={{ fontSize: 11 }}>e.g. "IT & Software", "CA Firms", "Real Estate"</span>
+                </div>
+              ) : Object.keys(templateLibrary).map(ind => (
+                <div key={ind} onClick={() => { setTmSelectedIndustry(ind); setTmSelectedCategory(""); setTmEditingVariant(null) }}
+                  style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "8px 10px", borderRadius: 7, marginBottom: 3, cursor: "pointer",
+                    background: tmSelectedIndustry === ind ? C.accentDim : "transparent",
+                    border: `1px solid ${tmSelectedIndustry === ind ? C.accent : "transparent"}`,
+                  }}>
+                  <div style={{ fontSize: 13, color: tmSelectedIndustry === ind ? C.accent : C.text, fontWeight: tmSelectedIndustry === ind ? 600 : 400, flex: 1 }}>{ind}</div>
+                  <div style={{ fontSize: 10, color: C.textDim, marginRight: 6 }}>{Object.keys(templateLibrary[ind] || {}).length} cat</div>
+                  <button onClick={e => { e.stopPropagation(); tmDeleteIndustry(ind) }} style={{ background: "none", border: "none", color: C.textDim, cursor: "pointer", fontSize: 13, padding: "0 2px" }}>×</button>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Column 2 — Categories */}
+          <div style={{ borderRight: `1px solid ${C.border}`, overflowY: "auto", background: C.surface }}>
+            <div style={{ padding: 14, borderBottom: `1px solid ${C.border}` }}>
+              <div style={{ fontSize: 11, color: C.textMuted, textTransform: "uppercase", letterSpacing: 1, marginBottom: 10 }}>
+                {tmSelectedIndustry ? `Categories — ${tmSelectedIndustry}` : "Categories"}
+              </div>
+              {tmSelectedIndustry ? (
+                <div style={{ display: "flex", gap: 6 }}>
+                  <input value={tmCategoryInput} onChange={e => setTmCategoryInput(e.target.value)}
+                    onKeyDown={e => e.key === "Enter" && tmAddCategory()}
+                    placeholder="New category..."
+                    style={{ flex: 1, background: C.card, border: `1px solid ${C.border2}`, color: C.text, padding: "6px 9px", borderRadius: 6, fontSize: 12 }} />
+                  <button onClick={tmAddCategory} style={{ background: C.accent, border: "none", color: "#fff", padding: "6px 10px", borderRadius: 6, cursor: "pointer", fontSize: 13, fontWeight: 700 }}>+</button>
+                </div>
+              ) : (
+                <div style={{ fontSize: 12, color: C.textDim }}>Pehle industry select karo</div>
+              )}
+            </div>
+            <div style={{ padding: 10 }}>
+              {!tmSelectedIndustry ? null : Object.keys(templateLibrary[tmSelectedIndustry] || {}).length === 0 ? (
+                <div style={{ color: C.textDim, fontSize: 12, padding: "20px 10px", textAlign: "center" }}>
+                  Koi category nahi<br/>
+                  <span style={{ fontSize: 11 }}>e.g. "Web Dev", "App Dev", "AI"</span>
+                </div>
+              ) : Object.keys(templateLibrary[tmSelectedIndustry]).map(cat => {
+                const variants = templateLibrary[tmSelectedIndustry][cat] || []
+                const filled = variants.filter(v => v.subject && v.body).length
+                
+                return (
+                  <div key={cat} onClick={() => { setTmSelectedCategory(cat); setTmEditingVariant(null) }}
+                    style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "8px 10px", borderRadius: 7, marginBottom: 3, cursor: "pointer",
+                      background: tmSelectedCategory === cat ? C.accentDim : "transparent",
+                      border: `1px solid ${tmSelectedCategory === cat ? C.accent : "transparent"}`,
+                    }}>
+                    <div>
+                      <div style={{ fontSize: 13, color: tmSelectedCategory === cat ? C.accent : C.text, fontWeight: tmSelectedCategory === cat ? 600 : 400 }}>{cat}</div>
+                      <div style={{ fontSize: 10, color: filled === 5 ? C.green : C.yellow, marginTop: 2 }}>
+                        {filled}/5 variants {filled === 5 ? "✓" : "⚠️"}
+                      </div>
+                    </div>
+                    <button onClick={e => { e.stopPropagation(); tmDeleteCategory(tmSelectedIndustry, cat) }} style={{ background: "none", border: "none", color: C.textDim, cursor: "pointer", fontSize: 13, padding: "0 2px" }}>×</button>
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+
+          {/* Column 3 — Variant editor */}
+          <div style={{ overflowY: "auto", display: "flex", flexDirection: "column" }}>
+            {!tmSelectedIndustry || !tmSelectedCategory ? (
+              <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", color: C.textDim, textAlign: "center", padding: 40 }}>
+                <div style={{ fontSize: 32, marginBottom: 12 }}>📝</div>
+                <div style={{ fontSize: 14, color: C.textMuted, marginBottom: 6 }}>Industry aur category select karo</div>
+                <div style={{ fontSize: 12 }}>Phir kisi bhi variant pe click karke subject + body type karo</div>
+              </div>
+            ) : (
+              <>
+                {/* Variant selector tabs */}
+                <div style={{ padding: "16px 20px 0", borderBottom: `1px solid ${C.border}` }}>
+                  <div style={{ fontSize: 12, color: C.textMuted, marginBottom: 10 }}>
+                    <span style={{ color: C.accent }}>{tmSelectedIndustry}</span> → <span style={{ color: C.text }}>{tmSelectedCategory}</span>
+                    <span style={{ marginLeft: 8, color: C.textDim }}>5 variants (sabko alag subject + body chahiye)</span>
+                  </div>
+                  <div style={{ display: "flex", gap: 6, marginBottom: 0 }}>
+                    {(templateLibrary[tmSelectedIndustry]?.[tmSelectedCategory] || []).map((v, idx) => {
+                      const isFilled = v.subject && v.body
+                      const isEditing = tmEditingVariant?.industryKey === tmSelectedIndustry && tmEditingVariant?.categoryKey === tmSelectedCategory && tmEditingVariant?.variantIdx === idx
+                      return (
+                        <button key={idx} onClick={() => tmOpenVariant(tmSelectedIndustry, tmSelectedCategory, idx)} style={{
+                          padding: "7px 16px", borderRadius: "6px 6px 0 0", border: `1px solid ${isEditing ? C.accent : C.border2}`,
+                          borderBottom: isEditing ? `1px solid ${C.bg}` : `1px solid ${C.border2}`,
+                          background: isEditing ? C.bg : C.surface,
+                          color: isEditing ? C.accent : isFilled ? C.text : C.textDim,
+                          cursor: "pointer", fontSize: 13, fontWeight: isEditing ? 700 : 400,
+                          position: "relative",
+                        }}>
+                          Variant {idx + 1}
+                          {isFilled && <span style={{ position: "absolute", top: 3, right: 3, width: 5, height: 5, borderRadius: "50%", background: C.green }} />}
+                        </button>
+                      )
+                    })}
+                  </div>
+                </div>
+
+                {/* Editor */}
+                {tmEditingVariant ? (
+                  <div style={{ flex: 1, padding: "20px", display: "flex", flexDirection: "column", gap: 14 }}>
+                    <div>
+                      <div style={{ fontSize: 11, color: C.textMuted, marginBottom: 6, textTransform: "uppercase", letterSpacing: 1 }}>
+                        Subject — Variant {tmEditingVariant.variantIdx + 1}
+                      </div>
+                      <input value={tmVariantSubject} onChange={e => setTmVariantSubject(e.target.value)}
+                        placeholder="e.g. Quick question about {{company}}'s website"
+                        style={{ width: "100%", background: C.card, border: `1px solid ${C.border2}`, color: C.text, padding: "10px 14px", borderRadius: 8, fontSize: 14, fontWeight: 600, boxSizing: "border-box" }} />
+                    </div>
+                    <div style={{ flex: 1, display: "flex", flexDirection: "column" }}>
+                      <div style={{ fontSize: 11, color: C.textMuted, marginBottom: 6, textTransform: "uppercase", letterSpacing: 1 }}>Body</div>
+                      <textarea value={tmVariantBody} onChange={e => setTmVariantBody(e.target.value)}
+                        placeholder={`Hi {{contact}},\n\n{{custom_line}}\n\n[apna pitch yahan likho]\n\nBest,\n{{sender_name}}`}
+                        style={{ flex: 1, minHeight: 320, background: C.card, border: `1px solid ${C.border2}`, color: C.text, padding: 14, borderRadius: 8, fontSize: 13, lineHeight: 1.7, resize: "vertical", boxSizing: "border-box", fontFamily: "monospace", width: "100%" }} />
+                    </div>
+                    <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                      <button onClick={tmSaveVariant} style={{ padding: "10px 24px", background: C.accent, border: "none", color: "#fff", borderRadius: 8, cursor: "pointer", fontWeight: 700, fontSize: 13 }}>
+                        ✅ Save Variant {tmEditingVariant.variantIdx + 1}
+                      </button>
+                      {tmEditingVariant.variantIdx < 4 && (
+                        <button onClick={() => { tmSaveVariant(); tmOpenVariant(tmSelectedIndustry, tmSelectedCategory, tmEditingVariant.variantIdx + 1) }}
+                          style={{ padding: "10px 20px", background: C.accentDim, border: `1px solid ${C.accent}44`, color: C.accent, borderRadius: 8, cursor: "pointer", fontSize: 13 }}>
+                          Save & Next →
+                        </button>
+                      )}
+                      <div style={{ fontSize: 11, color: C.textDim }}>
+                        Variables: {'{{company}}'} {'{{contact}}'} {'{{city}}'} {'{{custom_line}}'} {'{{sender_name}}'}
+                      </div>
+                    </div>
+                  </div>
+                ) : (
+                  <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", color: C.textDim, fontSize: 13 }}>
+                    Upar koi variant tab click karo to edit
+                  </div>
+                )}
+              </>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* ── SENT LOG ── */}
       {activeView === "sent" && (
         <div style={{ padding: 24 }}>
@@ -1434,6 +1655,118 @@ export default function EmailPage({ leads = [] }) {
           )}
         </div>
       )}
+
+      {/* ── PREVIEW MODAL — fixed overlay, full screen ── */}
+      {previewRecipient && (() => {
+        const p = getPreviewFor(previewRecipient)
+        const sender = senders[Math.floor(Math.random() * Math.max(senders.length, 1))]
+        return (
+          <>
+            {/* Backdrop */}
+            <div onClick={() => setPreviewRecipient(null)} style={{
+              position: "fixed", inset: 0, background: "rgba(0,0,0,0.75)",
+              zIndex: 1000, backdropFilter: "blur(4px)",
+            }} />
+
+            {/* Modal */}
+            <div style={{
+              position: "fixed",
+              top: "50%", left: "50%",
+              transform: "translate(-50%, -50%)",
+              width: "min(720px, 92vw)",
+              maxHeight: "88vh",
+              background: C.surface,
+              border: `1px solid ${C.border2}`,
+              borderRadius: 16,
+              zIndex: 1001,
+              display: "flex",
+              flexDirection: "column",
+              boxShadow: "0 32px 96px rgba(0,0,0,0.6)",
+              overflow: "hidden",
+            }}>
+              {/* Modal header */}
+              <div style={{
+                padding: "16px 24px",
+                borderBottom: `1px solid ${C.border}`,
+                display: "flex", justifyContent: "space-between", alignItems: "center",
+                background: C.card, flexShrink: 0,
+              }}>
+                <div>
+                  <div style={{ fontWeight: 700, fontSize: 15 }}>
+                    📧 Email Preview
+                  </div>
+                  <div style={{ fontSize: 11, color: C.textMuted, marginTop: 2 }}>
+                    {previewRecipient.company || previewRecipient.name || previewRecipient.email}
+                  </div>
+                </div>
+                <button onClick={() => setPreviewRecipient(null)} style={{
+                  width: 32, height: 32, borderRadius: "50%",
+                  background: C.border2, border: "none", color: C.text,
+                  cursor: "pointer", fontSize: 16, display: "flex",
+                  alignItems: "center", justifyContent: "center",
+                }}>✕</button>
+              </div>
+
+              {/* Email meta — From / To / Subject */}
+              <div style={{
+                padding: "16px 24px",
+                borderBottom: `1px solid ${C.border}`,
+                background: C.surface, flexShrink: 0,
+              }}>
+                {/* From / To row */}
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 14 }}>
+                  <div style={{ background: C.card, borderRadius: 8, padding: "10px 14px", border: `1px solid ${C.border2}` }}>
+                    <div style={{ fontSize: 10, color: C.textMuted, textTransform: "uppercase", letterSpacing: 1, marginBottom: 4 }}>From</div>
+                    <div style={{ fontSize: 13, fontWeight: 600, color: C.text }}>{sender?.name || "—"}</div>
+                    <div style={{ fontSize: 11, color: C.textMuted }}>{sender?.email || "—"}</div>
+                  </div>
+                  <div style={{ background: C.card, borderRadius: 8, padding: "10px 14px", border: `1px solid ${C.border2}` }}>
+                    <div style={{ fontSize: 10, color: C.textMuted, textTransform: "uppercase", letterSpacing: 1, marginBottom: 4 }}>To</div>
+                    <div style={{ fontSize: 13, fontWeight: 600, color: C.text }}>{previewRecipient.name || previewRecipient.company || "—"}</div>
+                    <div style={{ fontSize: 11, color: C.textMuted }}>{previewRecipient.email}</div>
+                  </div>
+                </div>
+
+                {/* Subject */}
+                <div style={{ background: C.card, borderRadius: 8, padding: "10px 14px", border: `1px solid ${C.border2}` }}>
+                  <div style={{ fontSize: 10, color: C.textMuted, textTransform: "uppercase", letterSpacing: 1, marginBottom: 4 }}>Subject</div>
+                  <div style={{ fontSize: 15, fontWeight: 700, color: C.text }}>{p.subject}</div>
+                </div>
+              </div>
+
+              {/* Email body — scrollable */}
+              <div style={{ flex: 1, overflowY: "auto", padding: "24px" }}>
+                <div style={{
+                  background: "#ffffff",
+                  borderRadius: 10,
+                  padding: "28px 32px",
+                  boxShadow: "0 2px 12px rgba(0,0,0,0.08)",
+                  minHeight: 200,
+                }} dangerouslySetInnerHTML={{ __html: textToHtml(p.body) }} />
+              </div>
+
+              {/* Footer */}
+              <div style={{
+                padding: "14px 24px",
+                borderTop: `1px solid ${C.border}`,
+                background: C.card,
+                display: "flex", justifyContent: "space-between", alignItems: "center",
+                flexShrink: 0,
+              }}>
+                <div style={{ fontSize: 11, color: C.textDim }}>
+                  Backdrop click karo ya ✕ press karo to close · Esc bhi kaam karta hai
+                </div>
+                <button onClick={() => setPreviewRecipient(null)} style={{
+                  padding: "8px 20px", borderRadius: 7,
+                  background: C.accent, border: "none",
+                  color: "#fff", fontSize: 13, fontWeight: 600,
+                  cursor: "pointer",
+                }}>Close</button>
+              </div>
+            </div>
+          </>
+        )
+      })()}
     </div>
   )
 }

@@ -600,3 +600,100 @@ export const getUpworkSearchUrl = (keyword, category) => {
   const q = [keyword, category !== 'Any' ? category : ''].filter(Boolean).join(' ')
   return `https://www.upwork.com/nx/search/jobs/?q=${encodeURIComponent(q)}&sort=recency`
 }
+// ==========================================================================
+// INBOX PLACEMENT PREDICTOR — separate Groq key pool (3 keys, own rotation)
+// ==========================================================================
+const INBOX_GROQ_MODEL = 'llama-3.3-70b-versatile'
+
+const _inboxGroqKeys = [
+  import.meta.env.VITE_INBOX_GROQ_KEY_1,
+  import.meta.env.VITE_INBOX_GROQ_KEY_2,
+  import.meta.env.VITE_INBOX_GROQ_KEY_3,
+].filter(k => k && k.startsWith('gsk_'))
+
+let _inboxGroqIndex = Math.floor(Math.random() * Math.max(_inboxGroqKeys.length, 1))
+const _inboxGroqLastCall = {}
+
+export const getInboxPredictorStats = () => ({
+  total: _inboxGroqKeys.length,
+  status: _inboxGroqKeys.length > 0
+    ? `✅ ${_inboxGroqKeys.length} keys loaded`
+    : '⚠️ VITE_INBOX_GROQ_KEY_1..3 missing in .env',
+})
+
+export const predictInboxPlacement = async (subject, body) => {
+  if (_inboxGroqKeys.length === 0) {
+    return { error: 'Koi key nahi mili — .env mein VITE_INBOX_GROQ_KEY_1..3 daalo' }
+  }
+
+  const prompt = `You are simulating Gmail's inbox categorization model (Primary vs Promotions vs Updates vs Social tab).
+
+Analyze this cold outreach email and predict which tab Gmail is MOST LIKELY to place it in, based on real Gmail signals:
+- Promotional/marketing language ("% off", "limited time", "click here", "buy now", excessive CTAs)
+- Bulk/templated feel vs personal 1-to-1 tone
+- Sales-pitch structure (bullet lists of features, "we offer", numbered value props)
+- Unsubscribe-style phrasing, tracking-pixel-like patterns, heavy HTML-ish formatting
+- Subject line style (spammy words, emojis, ALL CAPS, excessive punctuation, generic broadcast phrasing)
+- Personalization signals (specific person/company addressed vs generic "Dear Sir/Madam")
+- Length and paragraph structure (long marketing copy vs short conversational email)
+
+Subject: "${subject}"
+
+Body:
+${body}
+
+Return ONLY this JSON, nothing else:
+{
+  "predicted_tab": "Primary" | "Promotions" | "Updates" | "Social",
+  "primary_probability": <0-100 integer>,
+  "risk_factors": ["specific phrase/pattern in THIS email hurting Primary placement", ...max 5],
+  "suggestions": ["specific actionable rewrite suggestion for THIS email", ...max 5],
+  "subject_verdict": "one line on whether subject line itself is risky and why"
+}`
+
+  for (let attempt = 0; attempt < _inboxGroqKeys.length; attempt++) {
+    const keyIdx = _inboxGroqIndex % _inboxGroqKeys.length
+    const key = _inboxGroqKeys[keyIdx]
+
+    const now = Date.now()
+    const wait = Math.max(0, (_inboxGroqLastCall[keyIdx] || 0) + 2100 - now)
+    if (wait > 0) await new Promise(r => setTimeout(r, wait))
+    _inboxGroqLastCall[keyIdx] = Date.now()
+
+    try {
+      const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${key}` },
+        body: JSON.stringify({
+          model: INBOX_GROQ_MODEL,
+          max_tokens: 700,
+          temperature: 0.2,
+          messages: [
+            { role: 'system', content: 'You are a precise email deliverability analyst. Return valid JSON only, no markdown.' },
+            { role: 'user', content: prompt },
+          ],
+        }),
+      })
+
+      if (res.status === 429 || !res.ok) {
+        _inboxGroqIndex = (keyIdx + 1) % _inboxGroqKeys.length
+        continue
+      }
+
+      const data = await res.json()
+      const text = (data.choices?.[0]?.message?.content || '').replace(/```json\s*/gi, '').replace(/```\s*/gi, '').trim()
+      _inboxGroqIndex = (keyIdx + 1) % _inboxGroqKeys.length
+
+      try { return JSON.parse(text) }
+      catch {
+        const m = text.match(/\{[\s\S]*\}/)
+        if (m) { try { return JSON.parse(m[0]) } catch {} }
+        return { error: 'AI response parse nahi hua, dobara try karo' }
+      }
+    } catch {
+      _inboxGroqIndex = (keyIdx + 1) % _inboxGroqKeys.length
+      continue
+    }
+  }
+  return { error: 'Saare 3 keys fail/rate-limited — thodi der mein try karo' }
+}
