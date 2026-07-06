@@ -54,7 +54,7 @@ const saveTemplateLibrary = (lib) => {
 // BREVO API
 // ============================================================
 
-const brevoSendEmail = async ({ fromEmail, fromName, toEmail, toName, subject, htmlContent, tags, scheduledAt }) => {
+const brevoSendEmail = async ({ fromEmail, fromName, toEmail, toName, subject, htmlContent, tags, scheduledAt, cc, attachments }) => {
   if (!BREVO_API_KEY) throw new Error("VITE_BREVO_API_KEY not set in .env")
   const body = {
     sender: { name: fromName, email: fromEmail },
@@ -64,9 +64,11 @@ const brevoSendEmail = async ({ fromEmail, fromName, toEmail, toName, subject, h
     trackOpens: true,
     trackClicks: true,
   }
-  // Brevo holds the email on their server and sends it at this exact time —
-  // works even if your laptop/browser is closed afterward.
   if (scheduledAt) body.scheduledAt = scheduledAt
+  if (cc && cc.length) body.cc = cc.map(email => ({ email }))
+  if (attachments && attachments.length) {
+    body.attachment = attachments.map(a => ({ content: a.base64, name: a.name }))
+  }
   const res = await fetch("https://api.brevo.com/v3/smtp/email", {
     method: "POST",
     headers: { "api-key": BREVO_API_KEY, "Content-Type": "application/json" },
@@ -168,18 +170,92 @@ const fillTemplate = (text, vars) =>
     .replace(/\{\{industry\}\}/g, vars.industry || "your industry")
     .replace(/\{\{sender_name\}\}/g, vars.senderName || "")
     .replace(/\{\{custom_line\}\}/g, vars.customLine || "")
+    .replace(/\{\{calendar_link\}\}/g, vars.calendarLink || "")
 
 const textToHtml = (text) => {
   const escaped = text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
   const lines = escaped.split("\n")
   let html = '<div style="font-family:Arial,sans-serif;font-size:14px;line-height:1.7;color:#222;max-width:600px;">'
-  for (const line of lines) {
+  for (let line of lines) {
+    // Formatting syntax → real HTML (order matters: size → bold → italic)
+    line = line.replace(/\[\[(\d+)\]\](.+?)\[\[\/\]\]/g, '<span style="font-size:$1px">$2</span>')
+    line = line.replace(/\*\*(.+?)\*\*/g, "<b>$1</b>")
+    line = line.replace(/\*(.+?)\*/g, "<i>$1</i>")
+
     if (line.trim().startsWith("•")) html += `<div style="margin:2px 0 2px 16px;">• ${line.trim().slice(1).trim()}</div>`
     else if (line.trim() === "") html += "<br/>"
     else html += `<div style="margin:2px 0;">${line}</div>`
   }
   html += "</div>"
   return html
+}
+
+// ============================================================
+// CSV IMPORT — parse a CSV (e.g. exported from the Leads tab) and
+// auto-map its columns onto the same fields Single Add / Bulk Paste use:
+// email, name, company, city
+// ============================================================
+
+// Minimal RFC4180-ish CSV parser — handles quoted fields, escaped quotes,
+// and commas/newlines inside quotes (matches what the Leads tab exports).
+const parseCSV = (text) => {
+  const rows = []
+  let row = [], field = "", inQuotes = false
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i], next = text[i + 1]
+    if (inQuotes) {
+      if (c === '"' && next === '"') { field += '"'; i++ }
+      else if (c === '"') { inQuotes = false }
+      else field += c
+    } else {
+      if (c === '"') inQuotes = true
+      else if (c === ",") { row.push(field); field = "" }
+      else if (c === "\r") { /* skip */ }
+      else if (c === "\n") { row.push(field); rows.push(row); row = []; field = "" }
+      else field += c
+    }
+  }
+  if (field.length || row.length) { row.push(field); rows.push(row) }
+  return rows.filter(r => r.some(c => c.trim() !== ""))
+}
+
+// Finds the best-matching column index for a target field, trying exact
+// header matches first, then partial matches — in priority order.
+const guessColumnIndex = (headers, patterns) => {
+  const lower = headers.map(h => (h || "").toLowerCase().trim())
+  for (const pat of patterns) {
+    const idx = lower.findIndex(h => h === pat)
+    if (idx !== -1) return idx
+  }
+  for (const pat of patterns) {
+    const idx = lower.findIndex(h => h.includes(pat))
+    if (idx !== -1) return idx
+  }
+  return -1
+}
+
+// Maps parsed CSV rows onto { email, name, company, city } — same shape
+// Single Add and Bulk Paste already use. Works out of the box with the
+// Leads tab's own CSV export (Business Name / Best Email / City / Person 1 Name...).
+const mapCsvToRecipients = (rows) => {
+  if (rows.length < 2) return []
+  const headers = rows[0]
+  const emailIdx = guessColumnIndex(headers, ["best email", "email address", "email"])
+  const allEmailsIdx = guessColumnIndex(headers, ["all emails"])
+  const companyIdx = guessColumnIndex(headers, ["business name", "company name", "company"])
+  const nameIdx = guessColumnIndex(headers, ["person 1 name", "contact name", "full name", "name"])
+  const cityIdx = guessColumnIndex(headers, ["city"])
+
+  return rows.slice(1).map(r => {
+    let email = emailIdx !== -1 ? (r[emailIdx] || "").trim() : ""
+    if (!email && allEmailsIdx !== -1) email = (r[allEmailsIdx] || "").split(";")[0].trim()
+    return {
+      email,
+      name: nameIdx !== -1 ? (r[nameIdx] || "").trim() : "",
+      company: companyIdx !== -1 ? (r[companyIdx] || "").trim() : "",
+      city: cityIdx !== -1 ? (r[cityIdx] || "").trim() : "",
+    }
+  }).filter(r => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(r.email))
 }
 
 // ============================================================
@@ -221,7 +297,16 @@ export default function EmailPage({ leads = [] }) {
   const [newSenderEmail, setNewSenderEmail] = useState("")
   const [newSenderName, setNewSenderName] = useState("")
   const [showSenderMgr, setShowSenderMgr] = useState(false)
+const [ccEmail, setCcEmail] = useState(() => {
+  try { return localStorage.getItem("email_cc") || "" } catch { return "" }
+})
 
+useEffect(() => {
+  try { localStorage.setItem("email_cc", ccEmail) } catch {}
+}, [ccEmail])
+
+const [attachments, setAttachments] = useState([]) // [{name, base64}]
+const attachmentInputRef = useRef(null)
   // ── Template state ──
   const [activeView, setActiveView] = useState("compose")
   const [templateLibrary, setTemplateLibrary] = useState(() => loadTemplateLibrary())
@@ -240,7 +325,19 @@ export default function EmailPage({ leads = [] }) {
   const [addCityInput, setAddCityInput] = useState("")
 
   const [bulkPasteText, setBulkPasteText] = useState("")
-  const [showBulkPaste, setShowBulkPaste] = useState(true)
+  const [recipientMode, setRecipientMode] = useState("bulk") // "bulk" | "single" | "csv"
+
+  // ── CSV import ──
+  const [csvParsedRows, setCsvParsedRows] = useState([]) // [{email,name,company,city,_selected}]
+  const [csvFileName, setCsvFileName] = useState("")
+  const [showCsvModal, setShowCsvModal] = useState(false)
+  const [csvModalFilter, setCsvModalFilter] = useState("")
+  const csvFileInputRef = useRef(null)
+const bodyRef = useRef(null)   // 👈 YE ADD KARO
+
+  // ── Recipients management modal ──
+  const [showRecipientsModal, setShowRecipientsModal] = useState(false)
+  const [recipientsModalFilter, setRecipientsModalFilter] = useState("")
 
   // ── Sending ──
   const [sending, setSending] = useState(false)
@@ -393,7 +490,15 @@ useEffect(() => {
   useEffect(() => {
   try { localStorage.setItem("email_sent_log", JSON.stringify(sentLog)) } catch {}
 }, [sentLog])
-
+const wrapSelection = (before, after = before) => {
+  const el = bodyRef.current
+  if (!el) return
+  const { selectionStart: s, selectionEnd: e, value } = el
+  const selected = value.slice(s, e) || "text"
+  const newVal = value.slice(0, s) + before + selected + after + value.slice(e)
+  setBodyOverride(newVal)
+  setTimeout(() => { el.focus(); el.setSelectionRange(s + before.length, s + before.length + selected.length) }, 0)
+}
   const addSender = () => {
     if (!newSenderEmail.trim() || !newSenderEmail.includes("@")) return
     if (senders.find(s => s.email === newSenderEmail.trim())) return
@@ -420,7 +525,7 @@ const runAiAnalysis = async () => {
 const isAlreadyAnalyzed = lastAnalyzedContent
     ? lastAnalyzedContent.subject === subjectOverride && lastAnalyzedContent.body === bodyOverride
     : false
-  const getPreviewFor = (recipient, templateIdxOverride = null) => {
+const getPreviewFor = (recipient, templateIdxOverride = null) => {
     const vars = {
       company: recipient.company || recipient.name || "Company",
       contact: recipient.name || "there",
@@ -428,6 +533,8 @@ const isAlreadyAnalyzed = lastAnalyzedContent
       industry: activeCategory || selectedIndustry,
       senderName: senders[senderIdxRef.current % Math.max(senders.length, 1)]?.name || "",
       customLine: customLines[recipient.email] || "",
+            calendarLink: "https://cal.com/jainmanas",
+
     }
     // If rotating variants and a specific template index is given, use that
     // template's raw subject/body instead of whatever's in the editor —
@@ -455,14 +562,14 @@ const isAlreadyAnalyzed = lastAnalyzedContent
 
   const addManualRecipient = () => {
     if (!addEmailInput.trim()) return
-    setRecipients(prev => [...prev, { email: addEmailInput.trim(), name: addNameInput.trim(), company: addCompanyInput.trim(), city: "" }])
-    setAddEmailInput(""); setAddNameInput(""); setAddCompanyInput("")
+    setRecipients(prev => [...prev, { email: addEmailInput.trim(), name: addNameInput.trim(), company: addCompanyInput.trim(), city: addCityInput.trim() }])
+    setAddEmailInput(""); setAddNameInput(""); setAddCompanyInput(""); setAddCityInput("")
   }
 
   // Bulk paste — accepts lines like:
-  // email@x.com, Name, Company
+  // email@x.com, Name, Company, City
   // email@x.com
-  // email@x.com | Name | Company
+  // email@x.com | Name | Company | City
   const addBulkRecipients = (text) => {
     if (!text.trim()) return
     const lines = text.split("\n").map(l => l.trim()).filter(Boolean)
@@ -488,8 +595,54 @@ const isAlreadyAnalyzed = lastAnalyzedContent
     return newOnes.length
   }
 
-  const removeRecipient = (email) => setRecipients(prev => prev.filter(r => r.email !== email))
+  // ── CSV import handlers ──
+  const handleCsvFile = (e) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    setCsvFileName(file.name)
+    const reader = new FileReader()
+    reader.onload = (ev) => {
+      const text = String(ev.target.result || "")
+      const rows = parseCSV(text)
+      const mapped = mapCsvToRecipients(rows).map(r => ({ ...r, _selected: true }))
+      setCsvParsedRows(mapped)
+      setShowCsvModal(true)
+    }
+    reader.readAsText(file)
+    e.target.value = "" // allow re-selecting the same file later
+  }
 
+  const toggleCsvRow = (idx) => setCsvParsedRows(prev => prev.map((r, i) => i === idx ? { ...r, _selected: !r._selected } : r))
+  const toggleCsvAll = (val) => setCsvParsedRows(prev => prev.map(r => ({ ...r, _selected: val })))
+  const csvSelectedCount = csvParsedRows.filter(r => r._selected).length
+
+  const confirmCsvImport = () => {
+    const selected = csvParsedRows.filter(r => r._selected)
+    setRecipients(prev => {
+      const existing = new Set(prev.map(r => r.email))
+      const newOnes = selected.filter(r => !existing.has(r.email)).map(({ _selected, ...rest }) => rest)
+      return [...prev, ...newOnes]
+    })
+    setShowCsvModal(false)
+    setCsvParsedRows([])
+    setCsvModalFilter("")
+  }
+
+  const removeRecipient = (email) => setRecipients(prev => prev.filter(r => r.email !== email))
+const handleAttachmentUpload = (e) => {
+  const files = Array.from(e.target.files || [])
+  files.forEach(file => {
+    const reader = new FileReader()
+    reader.onload = (ev) => {
+      const base64 = ev.target.result.split(",")[1]
+      setAttachments(prev => [...prev, { name: file.name, base64 }])
+    }
+    reader.readAsDataURL(file)
+  })
+  e.target.value = ""
+}
+
+const removeAttachment = (idx) => setAttachments(prev => prev.filter((_, i) => i !== idx))
   const sendAll = async () => {
     if (!BREVO_API_KEY) { alert("Add VITE_BREVO_API_KEY to .env"); return }
     if (senders.length === 0) { alert("Add at least one sender email"); return }
@@ -545,13 +698,16 @@ const isAlreadyAnalyzed = lastAnalyzedContent
         // land in inboxes at the exact same second (looks more human to spam filters)
         const sendAt = new Date(baseTime.getTime() + i * (15000 + Math.floor(Math.random() * 5000)))
         try {
-          await brevoSendEmail({
-            fromEmail: sender.email, fromName: sender.name,
-            toEmail: recipient.email, toName: recipient.name || recipient.company,
-            subject: preview.subject, htmlContent: textToHtml(preview.body),
-            tags: [selectedIndustry, activeCategory, batchId],
-            scheduledAt: sendAt.toISOString(),
-          })
+         await brevoSendEmail({
+  fromEmail: sender.email, fromName: sender.name,
+  toEmail: recipient.email, toName: recipient.name || recipient.company,
+  subject: preview.subject, htmlContent: textToHtml(preview.body),
+  tags: [selectedIndustry, activeCategory, batchId],
+  cc: ccEmail.trim() ? [ccEmail.trim()] : [],
+  attachments: attachments,
+    scheduledAt: sendAt.toISOString(),  // ← yeh already hai scheduled mode mein
+
+})
           setSentLog(prev => [...prev, { email: recipient.email, company: recipient.company, status: "scheduled", scheduledFor: sendAt.toLocaleString(), time: new Date().toLocaleTimeString(), sender: sender.email, batchId, variantUsed: variantIdx !== null ? variantIdx + 1 : "current editor" }])
         } catch (err) {
           setSentLog(prev => [...prev, { email: recipient.email, company: recipient.company, status: "error", error: err.message, time: new Date().toLocaleTimeString(), sender: sender.email, batchId }])
@@ -578,12 +734,14 @@ const isAlreadyAnalyzed = lastAnalyzedContent
       const variantIdx = variantSequence[i]
       const preview = getPreviewFor(recipient, variantIdx)
       try {
-        await brevoSendEmail({
-          fromEmail: sender.email, fromName: sender.name,
-          toEmail: recipient.email, toName: recipient.name || recipient.company,
-          subject: preview.subject, htmlContent: textToHtml(preview.body),
-          tags: [selectedIndustry, activeCategory, batchId],
-        })
+       await brevoSendEmail({
+  fromEmail: sender.email, fromName: sender.name,
+  toEmail: recipient.email, toName: recipient.name || recipient.company,
+  subject: preview.subject, htmlContent: textToHtml(preview.body),
+  tags: [selectedIndustry, activeCategory, batchId],
+  cc: ccEmail.trim() ? [ccEmail.trim()] : [],
+  attachments: attachments,
+})
         setSentLog(prev => [...prev, { email: recipient.email, company: recipient.company, status: "sent", time: new Date().toLocaleTimeString(), sender: sender.email, batchId, variantUsed: variantIdx !== null ? variantIdx + 1 : "current editor" }])
         setDailySentCount(c => c + 1)
       } catch (err) {
@@ -663,35 +821,6 @@ const isAlreadyAnalyzed = lastAnalyzedContent
   const filteredEvents = trackingFilter === "all" ? events : events.filter(e => e.event === trackingFilter)
 // Per-recipient breakdown for the animated dashboard
 const perRecipientBreakdown = Object.values(eventsByEmailBatch).map(({ email, batchId, events: evs }) => {
- // Per-sender health — one card + slice per verified sender email
-const senderStats = senders.map(sdr => {
-  const theirSends = sentLog.filter(log => log.sender === sdr.email && log.status === "sent")
-  const batchKeys = [...new Set(theirSends.map(log => `${log.email}__${log.batchId}`))]
-  let delivered = 0, opened = 0, clicked = 0, bounced = 0, spam = 0, unsub = 0
-  batchKeys.forEach(key => {
-    const evs = eventsByEmailBatch[key]?.events || []
-    if (evs.some(e => e.event === "delivered")) delivered++
-    if (evs.some(e => e.event === "opened")) opened++
-    if (evs.some(e => e.event === "clicked")) clicked++
-    if (evs.some(e => e.event === "bounced" || e.event === "hardBounce" || e.event === "softBounce")) bounced++
-    if (evs.some(e => e.event === "spam")) spam++
-    if (evs.some(e => e.event === "unsubscribed")) unsub++
-  })
-  const totalSent = theirSends.length
-  const openRate = delivered > 0 ? (opened / delivered) * 100 : 0
-  const bounceRate = totalSent > 0 ? (bounced / totalSent) * 100 : 0
-  const spamRate = delivered > 0 ? (spam / delivered) * 100 : 0
-
-  let score = 100
-  if (openRate < 5) score -= 30; else if (openRate < 15) score -= 15; else if (openRate < 20) score -= 5
-  if (bounceRate > 5) score -= 30; else if (bounceRate > 2) score -= 15; else if (bounceRate > 1) score -= 5
-  if (spamRate > 0.5) score -= 35; else if (spamRate > 0.1) score -= 20; else if (spamRate > 0.05) score -= 10
-  score = totalSent > 0 ? Math.max(0, Math.min(100, score)) : 100
-
-  const color = totalSent === 0 ? C.textDim : score >= 75 ? C.green : score >= 50 ? C.yellow : C.red
-  return { ...sdr, totalSent, delivered, opened, clicked, bounced, spam, unsub, openRate, bounceRate, spamRate, score, color }
-})
-const totalSentAll = senderStats.reduce((sum, s) => sum + s.totalSent, 0)
   const isSpam = evs.some(e => e.event === "spam")
   const isBounced = evs.some(e => e.event === "bounced" || e.event === "hardBounce" || e.event === "softBounce")
   const isDelivered = evs.some(e => e.event === "delivered")
@@ -856,34 +985,45 @@ return (
             <div style={{ padding: "12px 16px" }}>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
                 <div style={{ fontSize: 11, color: C.textMuted, textTransform: "uppercase", letterSpacing: 1 }}>Recipients ({recipients.length})</div>
-                {leads.some(l => l.email || l.allEmails?.length) && (
-                  <button onClick={importFromLeads} style={{ fontSize: 11, padding: "4px 8px", borderRadius: 5, border: `1px solid ${C.accent}44`, background: C.accentDim, color: C.accent, cursor: "pointer" }}>+ From leads</button>
-                )}
+                <div style={{ display: "flex", gap: 6 }}>
+                  {recipients.length > 0 && (
+                    <button onClick={() => setShowRecipientsModal(true)} style={{ fontSize: 11, padding: "4px 8px", borderRadius: 5, border: `1px solid ${C.border2}`, background: "transparent", color: C.textMuted, cursor: "pointer" }}>🔍 View all</button>
+                  )}
+                  {leads.some(l => l.email || l.allEmails?.length) && (
+                    <button onClick={importFromLeads} style={{ fontSize: 11, padding: "4px 8px", borderRadius: 5, border: `1px solid ${C.accent}44`, background: C.accentDim, color: C.accent, cursor: "pointer" }}>+ From leads</button>
+                  )}
+                </div>
               </div>
 
-              {/* Bulk paste — main entry point */}
+              {/* Bulk paste / Single add / CSV import — main entry points */}
               <div style={{ marginBottom: 12 }}>
                 <div style={{ display: "flex", gap: 6, marginBottom: 8 }}>
-                  <button onClick={() => setShowBulkPaste(true)} style={{
-                    flex: 1, padding: "6px 10px", borderRadius: 6, fontSize: 11, cursor: "pointer",
-                    border: `1px solid ${showBulkPaste ? C.accent : C.border2}`,
-                    background: showBulkPaste ? C.accentDim : "transparent",
-                    color: showBulkPaste ? C.accent : C.textMuted,
+                  <button onClick={() => setRecipientMode("bulk")} style={{
+                    flex: 1, padding: "6px 8px", borderRadius: 6, fontSize: 11, cursor: "pointer",
+                    border: `1px solid ${recipientMode === "bulk" ? C.accent : C.border2}`,
+                    background: recipientMode === "bulk" ? C.accentDim : "transparent",
+                    color: recipientMode === "bulk" ? C.accent : C.textMuted,
                   }}>📋 Bulk Paste</button>
-                  <button onClick={() => setShowBulkPaste(false)} style={{
-                    flex: 1, padding: "6px 10px", borderRadius: 6, fontSize: 11, cursor: "pointer",
-                    border: `1px solid ${!showBulkPaste ? C.accent : C.border2}`,
-                    background: !showBulkPaste ? C.accentDim : "transparent",
-                    color: !showBulkPaste ? C.accent : C.textMuted,
+                  <button onClick={() => setRecipientMode("single")} style={{
+                    flex: 1, padding: "6px 8px", borderRadius: 6, fontSize: 11, cursor: "pointer",
+                    border: `1px solid ${recipientMode === "single" ? C.accent : C.border2}`,
+                    background: recipientMode === "single" ? C.accentDim : "transparent",
+                    color: recipientMode === "single" ? C.accent : C.textMuted,
                   }}>➕ Single Add</button>
+                  <button onClick={() => setRecipientMode("csv")} style={{
+                    flex: 1, padding: "6px 8px", borderRadius: 6, fontSize: 11, cursor: "pointer",
+                    border: `1px solid ${recipientMode === "csv" ? C.accent : C.border2}`,
+                    background: recipientMode === "csv" ? C.accentDim : "transparent",
+                    color: recipientMode === "csv" ? C.accent : C.textMuted,
+                  }}>📁 Import CSV</button>
                 </div>
 
-                {showBulkPaste ? (
+                {recipientMode === "bulk" && (
                   <div>
                     <textarea
                       value={bulkPasteText}
                       onChange={e => setBulkPasteText(e.target.value)}
-                      placeholder={`Paste multiple emails — ek line mein ek:\n\nemail1@x.com, Name, Company\nemail2@x.com, Name2, Company2\nemail3@x.com\n\n(comma, pipe ya tab se separate kar sakte ho — sirf email bhi chalega)`}
+                      placeholder={`Paste multiple emails — ek line mein ek:\n\nemail1@x.com, Name, Company, City\nemail2@x.com, Name2, Company2\nemail3@x.com\n\n(comma, pipe ya tab se separate kar sakte ho — sirf email bhi chalega)`}
                       style={{
                         width: "100%", height: 110, background: C.card, border: `1px solid ${C.border2}`,
                         color: C.text, padding: "8px 10px", borderRadius: 6, fontSize: 11,
@@ -898,7 +1038,9 @@ return (
                       color: C.accent, padding: 8, borderRadius: 6, cursor: "pointer", fontSize: 12, fontWeight: 600,
                     }}>📥 Add All from Paste</button>
                   </div>
-                ) : (
+                )}
+
+                {recipientMode === "single" && (
                   <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
                     <input placeholder="Email *" value={addEmailInput} onChange={e => setAddEmailInput(e.target.value)}
                       onKeyDown={e => e.key === "Enter" && addManualRecipient()}
@@ -910,6 +1052,25 @@ return (
                       <input placeholder="City" value={addCityInput} onChange={e => setAddCityInput(e.target.value)}
   style={{ background: C.card, border: `1px solid ${C.border2}`, color: C.text, padding: "7px 10px", borderRadius: 6, fontSize: 12 }} />
                     <button onClick={addManualRecipient} style={{ background: C.accentDim, border: `1px solid ${C.accent}44`, color: C.accent, padding: 7, borderRadius: 6, cursor: "pointer", fontSize: 12 }}>+ Add Recipient</button>
+                  </div>
+                )}
+
+                {recipientMode === "csv" && (
+                  <div>
+                    <input ref={csvFileInputRef} type="file" accept=".csv" onChange={handleCsvFile} style={{ display: "none" }} />
+                    <div onClick={() => csvFileInputRef.current?.click()} style={{
+                      border: `1.5px dashed ${C.border2}`, borderRadius: 8, padding: "22px 14px", textAlign: "center",
+                      cursor: "pointer", background: C.card,
+                    }}>
+                      <div style={{ fontSize: 22, marginBottom: 6 }}>📁</div>
+                      <div style={{ fontSize: 12, color: C.text, fontWeight: 600 }}>Click to choose a CSV file</div>
+                      <div style={{ fontSize: 10, color: C.textMuted, marginTop: 4, lineHeight: 1.5 }}>
+                        Leads tab se export ki hui CSV bhi chalegi — email, name, company, city columns automatically detect ho jaayenge
+                      </div>
+                    </div>
+                    <div style={{ fontSize: 10, color: C.textDim, marginTop: 6 }}>
+                      Import ke baad ek list khulegi jahan se select kar sakte ho kis-kisko bhejna hai.
+                    </div>
                   </div>
                 )}
               </div>
@@ -949,11 +1110,34 @@ return (
               <div style={{ fontSize: 11, color: C.textDim, marginTop: 4 }}>Variables: {'{{company}}'} {'{{contact}}'} {'{{city}}'} {'{{custom_line}}'} {'{{sender_name}}'}</div>
             </div>
 
-            <div style={{ padding: "16px 24px", flex: 1 }}>
-              <div style={{ fontSize: 11, color: C.textMuted, marginBottom: 6, textTransform: "uppercase", letterSpacing: 1 }}>Body</div>
-              <textarea value={bodyOverride} onChange={e => setBodyOverride(e.target.value)}
-                style={{ width: "100%", height: 340, background: C.card, border: `1px solid ${C.border2}`, color: C.text, padding: 14, borderRadius: 8, fontSize: 13, lineHeight: 1.7, resize: "vertical", boxSizing: "border-box", fontFamily: "monospace" }} />
-            </div>
+          <div style={{ padding: "16px 24px", flex: 1 }}>
+  <div style={{ fontSize: 11, color: C.textMuted, marginBottom: 6, textTransform: "uppercase", letterSpacing: 1 }}>Body</div>
+
+  {/* Formatting toolbar */}
+  <div style={{ display: "flex", gap: 6, marginBottom: 8 }}>
+    <button onClick={() => wrapSelection("**")} style={{
+      width: 30, height: 30, borderRadius: 6, border: `1px solid ${C.border2}`,
+      background: C.card, color: C.text, fontWeight: 700, cursor: "pointer",
+    }}>B</button>
+    <button onClick={() => wrapSelection("*")} style={{
+      width: 30, height: 30, borderRadius: 6, border: `1px solid ${C.border2}`,
+      background: C.card, color: C.text, fontStyle: "italic", cursor: "pointer",
+    }}>I</button>
+    <select onChange={e => { if (e.target.value) wrapSelection(`[[${e.target.value}]]`, "[[/]]"); e.target.value = "" }}
+      defaultValue="" style={{
+        height: 30, borderRadius: 6, border: `1px solid ${C.border2}`,
+        background: C.card, color: C.text, fontSize: 12, cursor: "pointer", padding: "0 8px",
+      }}>
+      <option value="">Size</option>
+      <option value="12">Small</option>
+      <option value="18">Medium</option>
+      <option value="28">Large</option>
+    </select>
+  </div>
+
+  <textarea ref={bodyRef} value={bodyOverride} onChange={e => setBodyOverride(e.target.value)}
+    style={{ width: "100%", height: 340, background: C.card, border: `1px solid ${C.border2}`, color: C.text, padding: 14, borderRadius: 8, fontSize: 13, lineHeight: 1.7, resize: "vertical", boxSizing: "border-box", fontFamily: "monospace" }} />
+</div>
             {/* AI Inbox Score & Suggestions */}
 <div style={{ padding: "0 24px 16px" }}>
 <button onClick={runAiAnalysis} disabled={analyzingAi || (!subjectOverride.trim() && !bodyOverride.trim()) || isAlreadyAnalyzed} style={{    display: "flex", alignItems: "center", gap: 8, padding: "9px 18px", borderRadius: 8,
@@ -1078,6 +1262,34 @@ return (
                   </span>
                 )}
               </div>
+              {/* CC + Attachments */}
+<div style={{ display: "flex", gap: 10, marginBottom: 14 }}>
+  <div style={{ flex: 1 }}>
+    <div style={{ fontSize: 11, color: C.textMuted, marginBottom: 4 }}>CC (every email)</div>
+    <input value={ccEmail} onChange={e => setCcEmail(e.target.value)}
+      placeholder="cc@example.com"
+      style={{ width: "100%", background: C.card, border: `1px solid ${C.border2}`, color: C.text, padding: "7px 10px", borderRadius: 6, fontSize: 12, boxSizing: "border-box" }} />
+  </div>
+  <div style={{ flex: 1 }}>
+    <div style={{ fontSize: 11, color: C.textMuted, marginBottom: 4 }}>Attachments</div>
+    <input ref={attachmentInputRef} type="file" multiple onChange={handleAttachmentUpload} style={{ display: "none" }} />
+    <button onClick={() => attachmentInputRef.current?.click()} style={{
+      width: "100%", background: C.card, border: `1px solid ${C.border2}`, color: C.textMuted,
+      padding: "7px 10px", borderRadius: 6, fontSize: 12, cursor: "pointer", textAlign: "left",
+    }}>📎 {attachments.length > 0 ? `${attachments.length} file(s) attached` : "Add attachment"}</button>
+  </div>
+</div>
+
+{attachments.length > 0 && (
+  <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 14 }}>
+    {attachments.map((a, i) => (
+      <div key={i} style={{ fontSize: 11, background: C.accentDim, color: C.accent, padding: "4px 8px", borderRadius: 5, display: "flex", alignItems: "center", gap: 6 }}>
+        📄 {a.name}
+        <button onClick={() => removeAttachment(i)} style={{ background: "none", border: "none", color: C.accent, cursor: "pointer", fontSize: 12 }}>✕</button>
+      </div>
+    ))}
+  </div>
+)}
 
               {scheduleMode && (
                 <div style={{ display: "flex", gap: 10, alignItems: "center", marginBottom: 14, background: C.card, border: `1px solid ${C.border2}`, borderRadius: 8, padding: "10px 14px" }}>
@@ -1654,6 +1866,134 @@ return (
             </div>
           )}
         </div>
+      )}
+
+      {/* ── CSV IMPORT PREVIEW MODAL ── */}
+      {showCsvModal && (
+        <>
+          <div onClick={() => { setShowCsvModal(false); setCsvParsedRows([]) }} style={{
+            position: "fixed", inset: 0, background: "rgba(0,0,0,0.75)", zIndex: 1000, backdropFilter: "blur(4px)",
+          }} />
+          <div style={{
+            position: "fixed", top: "50%", left: "50%", transform: "translate(-50%, -50%)",
+            width: "min(820px, 94vw)", maxHeight: "88vh", background: C.surface,
+            border: `1px solid ${C.border2}`, borderRadius: 16, zIndex: 1001,
+            display: "flex", flexDirection: "column", boxShadow: "0 32px 96px rgba(0,0,0,0.6)", overflow: "hidden",
+          }}>
+            <div style={{ padding: "16px 24px", borderBottom: `1px solid ${C.border}`, display: "flex", justifyContent: "space-between", alignItems: "center", background: C.card, flexShrink: 0 }}>
+              <div>
+                <div style={{ fontWeight: 700, fontSize: 15 }}>📁 Import from CSV — {csvFileName}</div>
+                <div style={{ fontSize: 11, color: C.textMuted, marginTop: 2 }}>
+                  {csvParsedRows.length} valid email row{csvParsedRows.length !== 1 ? "s" : ""} detected · {csvSelectedCount} selected
+                </div>
+              </div>
+              <button onClick={() => { setShowCsvModal(false); setCsvParsedRows([]) }} style={{ width: 32, height: 32, borderRadius: "50%", background: C.border2, border: "none", color: C.text, cursor: "pointer", fontSize: 16 }}>✕</button>
+            </div>
+
+            <div style={{ padding: "12px 24px", borderBottom: `1px solid ${C.border}`, display: "flex", gap: 10, alignItems: "center", flexShrink: 0 }}>
+              <input placeholder="Search rows..." value={csvModalFilter} onChange={e => setCsvModalFilter(e.target.value)}
+                style={{ flex: 1, background: C.card, border: `1px solid ${C.border2}`, color: C.text, padding: "7px 12px", borderRadius: 6, fontSize: 12 }} />
+              <button onClick={() => toggleCsvAll(true)} style={{ fontSize: 11, padding: "6px 12px", borderRadius: 6, border: `1px solid ${C.border2}`, background: "transparent", color: C.textMuted, cursor: "pointer" }}>Select All</button>
+              <button onClick={() => toggleCsvAll(false)} style={{ fontSize: 11, padding: "6px 12px", borderRadius: 6, border: `1px solid ${C.border2}`, background: "transparent", color: C.textMuted, cursor: "pointer" }}>Select None</button>
+            </div>
+
+            <div style={{ flex: 1, overflowY: "auto", padding: "8px 24px" }}>
+              {csvParsedRows.length === 0 ? (
+                <div style={{ color: C.textDim, textAlign: "center", padding: 40, fontSize: 13 }}>
+                  Is CSV mein koi valid email row nahi mili. Check karo ki koi column "email" ya "Best Email" naam se ho.
+                </div>
+              ) : (
+                <div style={{ display: "flex", flexDirection: "column", gap: 6, padding: "6px 0" }}>
+                  {csvParsedRows.map((r, i) => {
+                    const q = csvModalFilter.toLowerCase()
+                    if (q && !(r.email + r.name + r.company + r.city).toLowerCase().includes(q)) return null
+                    return (
+                      <div key={i} onClick={() => toggleCsvRow(i)} style={{
+                        display: "flex", alignItems: "center", gap: 12, padding: "9px 12px", borderRadius: 8, cursor: "pointer",
+                        background: r._selected ? C.accentDim : C.card, border: `1px solid ${r._selected ? C.accent + "55" : C.border2}`,
+                      }}>
+                        <input type="checkbox" checked={r._selected} onChange={() => toggleCsvRow(i)} onClick={e => e.stopPropagation()} style={{ cursor: "pointer" }} />
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div style={{ fontSize: 12, fontWeight: 600, color: C.text }}>{r.company || r.name || r.email}</div>
+                          <div style={{ fontSize: 11, color: C.textMuted }}>
+                            {r.email}{r.name ? ` · ${r.name}` : ""}{r.city ? ` · ${r.city}` : ""}
+                          </div>
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
+              )}
+            </div>
+
+            <div style={{ padding: "14px 24px", borderTop: `1px solid ${C.border}`, background: C.card, display: "flex", justifyContent: "space-between", alignItems: "center", flexShrink: 0 }}>
+              <div style={{ fontSize: 11, color: C.textDim }}>Already-added emails duplicate check mein automatically skip ho jaayenge</div>
+              <button onClick={confirmCsvImport} disabled={csvSelectedCount === 0} style={{
+                padding: "9px 22px", borderRadius: 7, border: "none", cursor: csvSelectedCount === 0 ? "not-allowed" : "pointer",
+                background: csvSelectedCount === 0 ? C.border2 : C.accent, color: "#fff", fontSize: 13, fontWeight: 700,
+              }}>📥 Add {csvSelectedCount} Selected Recipient{csvSelectedCount !== 1 ? "s" : ""}</button>
+            </div>
+          </div>
+        </>
+      )}
+
+      {/* ── RECIPIENTS MANAGEMENT MODAL ── */}
+      {showRecipientsModal && (
+        <>
+          <div onClick={() => setShowRecipientsModal(false)} style={{
+            position: "fixed", inset: 0, background: "rgba(0,0,0,0.75)", zIndex: 1000, backdropFilter: "blur(4px)",
+          }} />
+          <div style={{
+            position: "fixed", top: "50%", left: "50%", transform: "translate(-50%, -50%)",
+            width: "min(820px, 94vw)", maxHeight: "88vh", background: C.surface,
+            border: `1px solid ${C.border2}`, borderRadius: 16, zIndex: 1001,
+            display: "flex", flexDirection: "column", boxShadow: "0 32px 96px rgba(0,0,0,0.6)", overflow: "hidden",
+          }}>
+            <div style={{ padding: "16px 24px", borderBottom: `1px solid ${C.border}`, display: "flex", justifyContent: "space-between", alignItems: "center", background: C.card, flexShrink: 0 }}>
+              <div>
+                <div style={{ fontWeight: 700, fontSize: 15 }}>👥 All Recipients ({recipients.length})</div>
+                <div style={{ fontSize: 11, color: C.textMuted, marginTop: 2 }}>Bulk send mein inhi sabko mail jaayega — yahan se remove kar sakte ho</div>
+              </div>
+              <button onClick={() => setShowRecipientsModal(false)} style={{ width: 32, height: 32, borderRadius: "50%", background: C.border2, border: "none", color: C.text, cursor: "pointer", fontSize: 16 }}>✕</button>
+            </div>
+
+            <div style={{ padding: "12px 24px", borderBottom: `1px solid ${C.border}`, flexShrink: 0 }}>
+              <input placeholder="Search recipients..." value={recipientsModalFilter} onChange={e => setRecipientsModalFilter(e.target.value)}
+                style={{ width: "100%", background: C.card, border: `1px solid ${C.border2}`, color: C.text, padding: "8px 12px", borderRadius: 6, fontSize: 12, boxSizing: "border-box" }} />
+            </div>
+
+            <div style={{ flex: 1, overflowY: "auto", padding: "12px 24px" }}>
+              {recipients.length === 0 ? (
+                <div style={{ color: C.textDim, textAlign: "center", padding: 40, fontSize: 13 }}>Koi recipient add nahi hua abhi.</div>
+              ) : (
+                <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                  {recipients.map((r, i) => {
+                    const q = recipientsModalFilter.toLowerCase()
+                    if (q && !(r.email + (r.name || "") + (r.company || "") + (r.city || "")).toLowerCase().includes(q)) return null
+                    return (
+                      <div key={r.email} style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 14px", borderRadius: 8, background: C.card, border: `1px solid ${C.border2}` }}>
+                        <div style={{ width: 26, height: 26, borderRadius: "50%", background: C.accentDim, color: C.accent, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 700, flexShrink: 0 }}>{i + 1}</div>
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div style={{ fontSize: 12, fontWeight: 600, color: C.text }}>{r.company || r.name || r.email}</div>
+                          <div style={{ fontSize: 11, color: C.textMuted }}>
+                            {r.email}{r.name ? ` · ${r.name}` : ""}{r.city ? ` · ${r.city}` : ""}
+                          </div>
+                        </div>
+                        <button onClick={() => setPreviewRecipient(r)} style={{ fontSize: 10, padding: "4px 8px", borderRadius: 4, border: `1px solid ${C.border2}`, background: "transparent", color: C.textMuted, cursor: "pointer" }}>👁</button>
+                        <button onClick={() => removeRecipient(r.email)} style={{ fontSize: 10, padding: "4px 8px", borderRadius: 4, border: `1px solid ${C.redDim}`, background: "transparent", color: C.red, cursor: "pointer" }}>✕</button>
+                      </div>
+                    )
+                  })}
+                </div>
+              )}
+            </div>
+
+            <div style={{ padding: "14px 24px", borderTop: `1px solid ${C.border}`, background: C.card, display: "flex", justifyContent: "space-between", alignItems: "center", flexShrink: 0 }}>
+              <button onClick={() => { if (window.confirm("Sab recipients clear kar dein?")) setRecipients([]) }} style={{ fontSize: 12, padding: "8px 16px", borderRadius: 7, border: `1px solid ${C.redDim}`, background: "transparent", color: C.red, cursor: "pointer" }}>Clear All</button>
+              <button onClick={() => setShowRecipientsModal(false)} style={{ padding: "8px 20px", borderRadius: 7, background: C.accent, border: "none", color: "#fff", fontSize: 13, fontWeight: 600, cursor: "pointer" }}>Done</button>
+            </div>
+          </div>
+        </>
       )}
 
       {/* ── PREVIEW MODAL — fixed overlay, full screen ── */}
