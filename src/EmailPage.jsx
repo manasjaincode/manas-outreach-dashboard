@@ -101,6 +101,20 @@ const brevoGetEvents = async () => {
     return data.events || []
   } catch { return [] }
 }
+const brevoGetSenders = async () => {
+  if (!BREVO_API_KEY) throw new Error("VITE_BREVO_API_KEY not set in .env")
+  const res = await fetch("https://api.brevo.com/v3/senders", {
+    headers: { "api-key": BREVO_API_KEY },
+  })
+  const data = await res.json()
+  if (!res.ok) throw new Error(data.message || `Brevo error ${res.status}`)
+  return (data.senders || []).map(s => ({
+    id: s.id,
+    name: s.name,
+    email: s.email,
+    active: s.active !== false, // verified/active senders
+  }))
+}
 // ============================================================
 // GROQ AI — inbox score + spam-trigger analysis
 // VITE_INBOX_GROQ_KEY_1 / _2 / _3 — multiple keys rotate for extra headroom
@@ -245,6 +259,8 @@ const mapCsvToRecipients = (rows) => {
   const companyIdx = guessColumnIndex(headers, ["business name", "company name", "company"])
   const nameIdx = guessColumnIndex(headers, ["person 1 name", "contact name", "full name", "name"])
   const cityIdx = guessColumnIndex(headers, ["city"])
+  // 👇 NEW
+  const customLineIdx = guessColumnIndex(headers, ["custom line", "custom_line", "personalization", "custom message", "note"])
 
   return rows.slice(1).map(r => {
     let email = emailIdx !== -1 ? (r[emailIdx] || "").trim() : ""
@@ -254,6 +270,7 @@ const mapCsvToRecipients = (rows) => {
       name: nameIdx !== -1 ? (r[nameIdx] || "").trim() : "",
       company: companyIdx !== -1 ? (r[companyIdx] || "").trim() : "",
       city: cityIdx !== -1 ? (r[cityIdx] || "").trim() : "",
+      customLine: customLineIdx !== -1 ? (r[customLineIdx] || "").trim() : "", // 👈 NEW
     }
   }).filter(r => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(r.email))
 }
@@ -326,7 +343,8 @@ const attachmentInputRef = useRef(null)
 
   const [bulkPasteText, setBulkPasteText] = useState("")
   const [recipientMode, setRecipientMode] = useState("bulk") // "bulk" | "single" | "csv"
-
+const [editingEmail, setEditingEmail] = useState(null)
+const [editForm, setEditForm] = useState({ email: "", name: "", company: "", city: "" })
   // ── CSV import ──
   const [csvParsedRows, setCsvParsedRows] = useState([]) // [{email,name,company,city,_selected}]
   const [csvFileName, setCsvFileName] = useState("")
@@ -616,18 +634,33 @@ const getPreviewFor = (recipient, templateIdxOverride = null) => {
   const toggleCsvAll = (val) => setCsvParsedRows(prev => prev.map(r => ({ ...r, _selected: val })))
   const csvSelectedCount = csvParsedRows.filter(r => r._selected).length
 
-  const confirmCsvImport = () => {
-    const selected = csvParsedRows.filter(r => r._selected)
-    setRecipients(prev => {
-      const existing = new Set(prev.map(r => r.email))
-      const newOnes = selected.filter(r => !existing.has(r.email)).map(({ _selected, ...rest }) => rest)
-      return [...prev, ...newOnes]
+const confirmCsvImport = () => {
+  const selected = csvParsedRows.filter(r => r._selected)
+  setRecipients(prev => {
+    const existing = new Set(prev.map(r => r.email))
+    const newOnes = selected.filter(r => !existing.has(r.email)).map(({ _selected, customLine, ...rest }) => rest)
+    return [...prev, ...newOnes]
+  })
+  // 👇 NEW — customLine ko customLines state mein daal do
+  setCustomLines(prev => {
+    const updated = { ...prev }
+    selected.forEach(r => { if (r.customLine) updated[r.email] = r.customLine })
+    return updated
+  })
+  setShowCsvModal(false)
+  setCsvParsedRows([])
+  setCsvModalFilter("")
+}
+const updateRecipient = (oldEmail, updated) => {
+  setRecipients(prev => prev.map(r => r.email === oldEmail ? { ...r, ...updated } : r))
+  // agar email hi change ho raha hai, uski custom line bhi naye email pe move karo
+  if (updated.email && updated.email !== oldEmail) {
+    setCustomLines(prev => {
+      const { [oldEmail]: val, ...rest } = prev
+      return val ? { ...rest, [updated.email]: val } : rest
     })
-    setShowCsvModal(false)
-    setCsvParsedRows([])
-    setCsvModalFilter("")
   }
-
+}
   const removeRecipient = (email) => setRecipients(prev => prev.filter(r => r.email !== email))
 const handleAttachmentUpload = (e) => {
   const files = Array.from(e.target.files || [])
@@ -685,6 +718,8 @@ const removeAttachment = (idx) => setAttachments(prev => prev.filter((_, i) => i
       setSending(true)
       setSendProgress({ current: 0, total: recipients.length, scheduling: true })
       const queue = [...recipients]
+        let cumulativeOffset = 0   // 👈 YE ADD KARO YAHAN BHI
+
 
       for (let i = 0; i < queue.length; i++) {
         const recipient = queue[i]
@@ -696,7 +731,8 @@ const removeAttachment = (idx) => setAttachments(prev => prev.filter((_, i) => i
         const preview = getPreviewFor(recipient, variantIdx)
         // Stagger each recipient by 15-20s from the base time so they don't all
         // land in inboxes at the exact same second (looks more human to spam filters)
-        const sendAt = new Date(baseTime.getTime() + i * (15000 + Math.floor(Math.random() * 5000)))
+if (i > 0) cumulativeOffset += 15000 + Math.floor(Math.random() * (240000 - 15000))
+const sendAt = new Date(baseTime.getTime() + cumulativeOffset)
         try {
          await brevoSendEmail({
   fromEmail: sender.email, fromName: sender.name,
@@ -725,6 +761,7 @@ const removeAttachment = (idx) => setAttachments(prev => prev.filter((_, i) => i
     setSending(true)
     setSendProgress({ current: 0, total: recipients.length })
     const queue = [...recipients]
+let cumulativeOffset = 0   // 👈 ADD THIS
 
     for (let i = 0; i < queue.length; i++) {
       const recipient = queue[i]
@@ -749,7 +786,7 @@ const removeAttachment = (idx) => setAttachments(prev => prev.filter((_, i) => i
       }
       // Random 15-20s human-like gap between sends (skip after last one)
       if (i < queue.length - 1) {
-        const gapMs = 15000 + Math.floor(Math.random() * 5000) // 15-20s
+const gapMs = 15000 + Math.floor(Math.random() * (240000 - 15000)) // 15s to 4min, random each time
         for (let remaining = Math.ceil(gapMs / 1000); remaining > 0; remaining--) {
           setSendProgress({ current: i + 1, total: queue.length, waitingSec: remaining })
           await new Promise(r => setTimeout(r, 1000))
@@ -1970,17 +2007,42 @@ return (
                   {recipients.map((r, i) => {
                     const q = recipientsModalFilter.toLowerCase()
                     if (q && !(r.email + (r.name || "") + (r.company || "") + (r.city || "")).toLowerCase().includes(q)) return null
+                    const isEditing = editingEmail === r.email
                     return (
-                      <div key={r.email} style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 14px", borderRadius: 8, background: C.card, border: `1px solid ${C.border2}` }}>
-                        <div style={{ width: 26, height: 26, borderRadius: "50%", background: C.accentDim, color: C.accent, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 700, flexShrink: 0 }}>{i + 1}</div>
-                        <div style={{ flex: 1, minWidth: 0 }}>
-                          <div style={{ fontSize: 12, fontWeight: 600, color: C.text }}>{r.company || r.name || r.email}</div>
-                          <div style={{ fontSize: 11, color: C.textMuted }}>
-                            {r.email}{r.name ? ` · ${r.name}` : ""}{r.city ? ` · ${r.city}` : ""}
+                      <div key={r.email} style={{ background: C.card, border: `1px solid ${isEditing ? C.accent : C.border2}`, borderRadius: 8, padding: "10px 14px" }}>
+                        {isEditing ? (
+                          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                            <input placeholder="Email" value={editForm.email} onChange={e => setEditForm(f => ({ ...f, email: e.target.value }))}
+                              style={{ background: C.surface, border: `1px solid ${C.border2}`, color: C.text, padding: "6px 9px", borderRadius: 5, fontSize: 12 }} />
+                            <input placeholder="Name" value={editForm.name} onChange={e => setEditForm(f => ({ ...f, name: e.target.value }))}
+                              style={{ background: C.surface, border: `1px solid ${C.border2}`, color: C.text, padding: "6px 9px", borderRadius: 5, fontSize: 12 }} />
+                            <input placeholder="Company" value={editForm.company} onChange={e => setEditForm(f => ({ ...f, company: e.target.value }))}
+                              style={{ background: C.surface, border: `1px solid ${C.border2}`, color: C.text, padding: "6px 9px", borderRadius: 5, fontSize: 12 }} />
+                            <input placeholder="City" value={editForm.city} onChange={e => setEditForm(f => ({ ...f, city: e.target.value }))}
+                              style={{ background: C.surface, border: `1px solid ${C.border2}`, color: C.text, padding: "6px 9px", borderRadius: 5, fontSize: 12 }} />
+                            <div style={{ display: "flex", gap: 6, marginTop: 4 }}>
+                              <button onClick={() => {
+                                if (!editForm.email.trim()) return
+                                updateRecipient(r.email, editForm)
+                                setEditingEmail(null)
+                              }} style={{ flex: 1, background: C.accent, border: "none", color: "#fff", padding: 7, borderRadius: 6, cursor: "pointer", fontSize: 12, fontWeight: 600 }}>✅ Save</button>
+                              <button onClick={() => setEditingEmail(null)} style={{ flex: 1, background: "transparent", border: `1px solid ${C.border2}`, color: C.textMuted, padding: 7, borderRadius: 6, cursor: "pointer", fontSize: 12 }}>Cancel</button>
+                            </div>
                           </div>
-                        </div>
-                        <button onClick={() => setPreviewRecipient(r)} style={{ fontSize: 10, padding: "4px 8px", borderRadius: 4, border: `1px solid ${C.border2}`, background: "transparent", color: C.textMuted, cursor: "pointer" }}>👁</button>
-                        <button onClick={() => removeRecipient(r.email)} style={{ fontSize: 10, padding: "4px 8px", borderRadius: 4, border: `1px solid ${C.redDim}`, background: "transparent", color: C.red, cursor: "pointer" }}>✕</button>
+                        ) : (
+                          <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                            <div style={{ width: 26, height: 26, borderRadius: "50%", background: C.accentDim, color: C.accent, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 700, flexShrink: 0 }}>{i + 1}</div>
+                            <div style={{ flex: 1, minWidth: 0 }}>
+                              <div style={{ fontSize: 12, fontWeight: 600, color: C.text }}>{r.company || r.name || r.email}</div>
+                              <div style={{ fontSize: 11, color: C.textMuted }}>
+                                {r.email}{r.name ? ` · ${r.name}` : ""}{r.city ? ` · ${r.city}` : ""}
+                              </div>
+                            </div>
+                            <button onClick={() => { setEditingEmail(r.email); setEditForm({ email: r.email, name: r.name || "", company: r.company || "", city: r.city || "" }) }} style={{ fontSize: 10, padding: "4px 8px", borderRadius: 4, border: `1px solid ${C.border2}`, background: "transparent", color: C.textMuted, cursor: "pointer" }}>✏️</button>
+                            <button onClick={() => setPreviewRecipient(r)} style={{ fontSize: 10, padding: "4px 8px", borderRadius: 4, border: `1px solid ${C.border2}`, background: "transparent", color: C.textMuted, cursor: "pointer" }}>👁</button>
+                            <button onClick={() => removeRecipient(r.email)} style={{ fontSize: 10, padding: "4px 8px", borderRadius: 4, border: `1px solid ${C.redDim}`, background: "transparent", color: C.red, cursor: "pointer" }}>✕</button>
+                          </div>
+                        )}
                       </div>
                     )
                   })}
@@ -2067,11 +2129,27 @@ return (
                   </div>
                 </div>
 
-                {/* Subject */}
-                <div style={{ background: C.card, borderRadius: 8, padding: "10px 14px", border: `1px solid ${C.border2}` }}>
+             {/* Subject */}
+                <div style={{ background: C.card, borderRadius: 8, padding: "10px 14px", border: `1px solid ${C.border2}`, marginBottom: attachments.length > 0 ? 12 : 0 }}>
                   <div style={{ fontSize: 10, color: C.textMuted, textTransform: "uppercase", letterSpacing: 1, marginBottom: 4 }}>Subject</div>
                   <div style={{ fontSize: 15, fontWeight: 700, color: C.text }}>{p.subject}</div>
                 </div>
+
+                {/* Attachments preview */}
+                {attachments.length > 0 && (
+                  <div style={{ background: C.card, borderRadius: 8, padding: "10px 14px", border: `1px solid ${C.border2}` }}>
+                    <div style={{ fontSize: 10, color: C.textMuted, textTransform: "uppercase", letterSpacing: 1, marginBottom: 6 }}>
+                      📎 Attachments ({attachments.length})
+                    </div>
+                    <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                      {attachments.map((a, i) => (
+                        <div key={i} style={{ fontSize: 12, background: C.accentDim, color: C.accent, padding: "4px 10px", borderRadius: 5 }}>
+                          📄 {a.name}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </div>
 
               {/* Email body — scrollable */}
