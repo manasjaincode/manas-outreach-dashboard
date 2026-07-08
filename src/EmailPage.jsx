@@ -295,25 +295,46 @@ const C = {
 
 export default function EmailPage({ leads = [] }) {
   // ── Sender management (dynamic — add/remove in UI) ──
-  const [senders, setSenders] = useState(() => {
-    const fromEnv = [
-      { id: 1, name: "Manas Jain", email: import.meta.env.VITE_SENDER_1 || "" },
-      { id: 2, name: "Manas Jain", email: import.meta.env.VITE_SENDER_2 || "" },
-      { id: 3, name: "Manas Jain", email: import.meta.env.VITE_SENDER_3 || "" },
-      { id: 4, name: "Manas Jain", email: import.meta.env.VITE_SENDER_4 || "" },
-      { id: 5, name: "Manas Jain", email: import.meta.env.VITE_SENDER_5 || "" },
-    ].filter(s => s.email)
-    // Also load any saved from localStorage
-    try {
-      const saved = JSON.parse(localStorage.getItem("email_senders") || "[]")
-      const all = [...fromEnv]
-      saved.forEach(s => { if (!all.find(x => x.email === s.email)) all.push(s) })
-      return all
-    } catch { return fromEnv }
+
+ const [allSenders, setAllSenders] = useState([]) // Brevo se fetched
+const [loadingSenders, setLoadingSenders] = useState(false)
+const [sendersError, setSendersError] = useState("")
+const [activeSenderEmails, setActiveSenderEmails] = useState(() => {
+  try { return JSON.parse(localStorage.getItem("email_active_senders") || "null") } catch { return null }
+}) // null = sab selected by default
+const [senderDropdownOpen, setSenderDropdownOpen] = useState(false)
+const senderDropdownRef = useRef(null)
+
+const senders = activeSenderEmails === null
+  ? allSenders
+  : allSenders.filter(s => activeSenderEmails.includes(s.email))
+
+const loadSendersFromBrevo = async () => {
+  setLoadingSenders(true); setSendersError("")
+  try { setAllSenders(await brevoGetSenders()) }
+  catch (err) { setSendersError(err.message) }
+  setLoadingSenders(false)
+}
+
+useEffect(() => { loadSendersFromBrevo() }, [])
+
+useEffect(() => {
+  const handler = (e) => { if (senderDropdownRef.current && !senderDropdownRef.current.contains(e.target)) setSenderDropdownOpen(false) }
+  document.addEventListener("mousedown", handler)
+  return () => document.removeEventListener("mousedown", handler)
+}, [])
+
+const toggleSenderActive = (email) => {
+  setActiveSenderEmails(prev => {
+    const base = prev === null ? allSenders.map(s => s.email) : prev
+    return base.includes(email) ? base.filter(e => e !== email) : [...base, email]
   })
-  const [newSenderEmail, setNewSenderEmail] = useState("")
-  const [newSenderName, setNewSenderName] = useState("")
-  const [showSenderMgr, setShowSenderMgr] = useState(false)
+}
+const isSenderActive = (email) => activeSenderEmails === null || activeSenderEmails.includes(email)
+
+useEffect(() => {
+  try { localStorage.setItem("email_active_senders", JSON.stringify(activeSenderEmails)) } catch {}
+}, [activeSenderEmails])
 const [ccEmail, setCcEmail] = useState(() => {
   try { return localStorage.getItem("email_cc") || "" } catch { return "" }
 })
@@ -517,14 +538,7 @@ const wrapSelection = (before, after = before) => {
   setBodyOverride(newVal)
   setTimeout(() => { el.focus(); el.setSelectionRange(s + before.length, s + before.length + selected.length) }, 0)
 }
-  const addSender = () => {
-    if (!newSenderEmail.trim() || !newSenderEmail.includes("@")) return
-    if (senders.find(s => s.email === newSenderEmail.trim())) return
-    setSenders(prev => [...prev, { id: Date.now(), name: newSenderName.trim() || "Manas Jain", email: newSenderEmail.trim() }])
-    setNewSenderEmail(""); setNewSenderName("")
-  }
 
-  const removeSender = (id) => setSenders(prev => prev.filter(s => s.id !== id))
 const runAiAnalysis = async () => {
     if (!subjectOverride.trim() && !bodyOverride.trim()) return
     setAnalyzingAi(true)
@@ -928,7 +942,7 @@ return (
           { id: "templates", label: "📚 My Templates" },
           { id: "tracking", label: `👁 Per-Email Tracking` },
           { id: "analytics", label: "📊 Analytics" },
-          { id: "senders", label: `📮 Senders (${senders.length})` },
+{ id: "senders", label: `📮 Senders (${senders.length}/${allSenders.length})` },
           { id: "sent", label: `📤 Sent Log (${sentLog.length})` },
         ].map(tab => (
           <button key={tab.id} onClick={() => setActiveView(tab.id)} style={{
@@ -999,24 +1013,59 @@ return (
             </div>
 
             {/* Sender info */}
-            <div style={{ padding: "12px 16px", borderBottom: `1px solid ${C.border}` }}>
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
-                <div style={{ fontSize: 11, color: C.textMuted, textTransform: "uppercase", letterSpacing: 1 }}>Sending From</div>
-                <button onClick={() => setActiveView("senders")} style={{ fontSize: 11, color: C.accent, background: "none", border: "none", cursor: "pointer" }}>Manage →</button>
+      
+<div style={{ padding: "12px 16px", borderBottom: `1px solid ${C.border}`, position: "relative" }} ref={senderDropdownRef}>
+  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+    <div style={{ fontSize: 11, color: C.textMuted, textTransform: "uppercase", letterSpacing: 1 }}>Sending From</div>
+    <button onClick={loadSendersFromBrevo} disabled={loadingSenders} style={{ fontSize: 11, color: C.accent, background: "none", border: "none", cursor: "pointer" }}>
+      {loadingSenders ? "..." : "🔄 Refresh"}
+    </button>
+  </div>
+
+  {sendersError && (
+    <div style={{ fontSize: 11, color: C.red, background: C.redDim, padding: "6px 8px", borderRadius: 5, marginBottom: 6 }}>{sendersError}</div>
+  )}
+
+  {allSenders.length === 0 && !loadingSenders && !sendersError ? (
+    <div style={{ fontSize: 12, color: C.yellow }}>Brevo mein koi verified sender nahi mila.</div>
+  ) : (
+    <>
+      <button onClick={() => setSenderDropdownOpen(o => !o)} style={{
+        width: "100%", display: "flex", justifyContent: "space-between", alignItems: "center",
+        background: C.card, border: `1px solid ${C.border2}`, color: C.text,
+        padding: "8px 10px", borderRadius: 6, cursor: "pointer", fontSize: 12,
+      }}>
+        <span>🔀 {senders.length} of {allSenders.length} selected</span>
+        <span style={{ color: C.textMuted }}>{senderDropdownOpen ? "▲" : "▼"}</span>
+      </button>
+
+      {senderDropdownOpen && (
+        <div style={{
+          position: "absolute", left: 16, right: 16, marginTop: 4, zIndex: 50,
+          background: C.card, border: `1px solid ${C.border2}`, borderRadius: 8,
+          maxHeight: 240, overflowY: "auto", boxShadow: "0 12px 32px rgba(0,0,0,0.5)",
+        }}>
+          {allSenders.map(s => (
+            <label key={s.id || s.email} style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 10px", borderBottom: `1px solid ${C.border}`, cursor: "pointer", fontSize: 12 }}>
+              <input type="checkbox" checked={isSenderActive(s.email)} onChange={() => toggleSenderActive(s.email)} />
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ color: C.text, fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{s.name || s.email}</div>
+                <div style={{ color: C.textMuted, fontSize: 10 }}>{s.email}</div>
               </div>
-              {senders.length === 0 ? (
-                <div style={{ fontSize: 12, color: C.yellow }}>No senders — go to Senders tab to add</div>
-              ) : (
-                <div style={{ fontSize: 12, color: C.textMuted }}>
-                  🔀 Random from <span style={{ color: C.text, fontWeight: 600 }}>{senders.length} sender{senders.length > 1 ? "s" : ""}</span>
-                  <div style={{ marginTop: 4, display: "flex", flexWrap: "wrap", gap: 4 }}>
-                    {senders.map(s => (
-                      <div key={s.id} style={{ fontSize: 10, background: C.accentDim, color: C.accent, padding: "2px 6px", borderRadius: 4 }}>{s.email}</div>
-                    ))}
-                  </div>
-                </div>
-              )}
-            </div>
+              {s.active === false && <span style={{ fontSize: 9, color: C.yellow }}>unverified</span>}
+            </label>
+          ))}
+        </div>
+      )}
+
+      <div style={{ marginTop: 6, display: "flex", flexWrap: "wrap", gap: 4 }}>
+        {senders.map(s => (
+          <div key={s.id || s.email} style={{ fontSize: 10, background: C.accentDim, color: C.accent, padding: "2px 6px", borderRadius: 4 }}>{s.email}</div>
+        ))}
+      </div>
+    </>
+  )}
+</div>
 
             {/* Recipients */}
             <div style={{ padding: "12px 16px" }}>
@@ -1661,37 +1710,43 @@ return (
 )}
 
       {/* ── SENDERS MANAGEMENT ── */}
-      {activeView === "senders" && (
-        <div style={{ padding: 24, maxWidth: 600 }}>
-          <h2 style={{ margin: "0 0 6px", fontWeight: 700, fontSize: 20 }}>Sender Emails</h2>
-          <div style={{ fontSize: 13, color: C.textMuted, marginBottom: 24 }}>
-            Each email is randomly selected when sending. All must be verified in Brevo dashboard (Settings → Senders & IPs).
-          </div>
+  {activeView === "senders" && (
+  <div style={{ padding: 24, maxWidth: 640 }}>
+    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+      <h2 style={{ margin: 0, fontWeight: 700, fontSize: 20 }}>Sender Emails</h2>
+      <button onClick={loadSendersFromBrevo} disabled={loadingSenders} style={{ padding: "8px 16px", borderRadius: 7, border: `1px solid ${C.border2}`, background: C.card, color: C.text, cursor: "pointer", fontSize: 13 }}>
+        {loadingSenders ? "Loading..." : "🔄 Refresh from Brevo"}
+      </button>
+    </div>
+    <div style={{ fontSize: 13, color: C.textMuted, marginBottom: 20 }}>
+      Ye list seedha Brevo account se aa rahi hai (Settings → Senders & IPs). Yahan se select karo kaunse rotation mein use hone chahiye.
+    </div>
 
-          {/* Add new */}
-          <div style={{ background: C.card, border: `1px solid ${C.border2}`, borderRadius: 10, padding: 20, marginBottom: 20 }}>
-            <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 14 }}>Add Sender Email</div>
-            <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-              <input placeholder="Email address *" value={newSenderEmail} onChange={e => setNewSenderEmail(e.target.value)}
-                onKeyDown={e => e.key === "Enter" && addSender()}
-                style={{ background: C.surface, border: `1px solid ${C.border2}`, color: C.text, padding: "9px 12px", borderRadius: 7, fontSize: 13 }} />
-              <input placeholder="Display name (default: Manas Jain)" value={newSenderName} onChange={e => setNewSenderName(e.target.value)}
-                style={{ background: C.surface, border: `1px solid ${C.border2}`, color: C.text, padding: "9px 12px", borderRadius: 7, fontSize: 13 }} />
-              <button onClick={addSender} style={{ background: C.accent, border: "none", color: "#fff", padding: "10px", borderRadius: 7, cursor: "pointer", fontWeight: 600, fontSize: 13 }}>
-                + Add Sender
-              </button>
-            </div>
-            <div style={{ fontSize: 11, color: C.textDim, marginTop: 10 }}>
-              💡 Tip: Use emails from different domains for better deliverability (e.g. @gmail.com, @yourdomain.com)
-            </div>
-          </div>
+    {sendersError && (
+      <div style={{ background: C.redDim, border: `1px solid ${C.red}44`, borderRadius: 10, padding: 16, color: C.red, fontSize: 13, marginBottom: 16 }}>⚠️ {sendersError}</div>
+    )}
 
-          {/* List */}
-          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-            {senders.length === 0 ? (
-              <div style={{ color: C.textMuted, textAlign: "center", padding: 40 }}>No senders added yet.</div>
-            ) : senders.map((s, i) => (
-              <div key={s.id} style={{ background: C.card, border: `1px solid ${C.border2}`, borderRadius: 9, padding: "12px 16px", display: "flex", alignItems: "center", gap: 12 }}>
+    {!BREVO_API_KEY ? (
+      <div style={{ background: C.yellowDim, border: `1px solid ${C.yellow}44`, borderRadius: 10, padding: 24, color: C.yellow, fontSize: 13 }}>
+        Add <code>VITE_BREVO_API_KEY</code> to .env to load senders.
+      </div>
+    ) : allSenders.length === 0 ? (
+      <div style={{ color: C.textMuted, textAlign: "center", padding: 40 }}>
+        {loadingSenders ? "Loading senders..." : "Brevo mein koi verified sender nahi mila. Pehle Brevo dashboard → Settings → Senders & IPs mein verify karo."}
+      </div>
+    ) : (
+      <>
+        <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
+          <button onClick={() => setActiveSenderEmails(allSenders.map(s => s.email))} style={{ fontSize: 11, padding: "6px 12px", borderRadius: 6, border: `1px solid ${C.border2}`, background: "transparent", color: C.textMuted, cursor: "pointer" }}>Select All</button>
+          <button onClick={() => setActiveSenderEmails([])} style={{ fontSize: 11, padding: "6px 12px", borderRadius: 6, border: `1px solid ${C.border2}`, background: "transparent", color: C.textMuted, cursor: "pointer" }}>Select None</button>
+        </div>
+
+        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+          {allSenders.map(s => {
+            const active = isSenderActive(s.email)
+            return (
+              <div key={s.id || s.email} style={{ background: C.card, border: `1px solid ${active ? C.accent + "44" : C.border2}`, borderRadius: 9, padding: "12px 16px", display: "flex", alignItems: "center", gap: 12 }}>
+                <input type="checkbox" checked={active} onChange={() => toggleSenderActive(s.email)} style={{ cursor: "pointer" }} />
                 <div style={{ width: 32, height: 32, borderRadius: "50%", background: C.accentDim, display: "flex", alignItems: "center", justifyContent: "center", color: C.accent, fontWeight: 700, fontSize: 13, flexShrink: 0 }}>
                   {(s.name || s.email)[0].toUpperCase()}
                 </div>
@@ -1699,19 +1754,26 @@ return (
                   <div style={{ fontWeight: 600, fontSize: 13 }}>{s.name}</div>
                   <div style={{ fontSize: 12, color: C.textMuted }}>{s.email}</div>
                 </div>
-                <div style={{ fontSize: 11, color: C.textDim, marginRight: 8 }}>#{i + 1}</div>
-                <button onClick={() => removeSender(s.id)} style={{ background: C.redDim, border: `1px solid ${C.red}33`, color: C.red, padding: "5px 10px", borderRadius: 6, cursor: "pointer", fontSize: 12 }}>
-                  Remove
-                </button>
+                {s.active === false ? (
+                  <span style={{ fontSize: 11, color: C.yellow, background: C.yellowDim, padding: "3px 8px", borderRadius: 5 }}>⚠️ unverified</span>
+                ) : (
+                  <span style={{ fontSize: 11, color: C.green, background: C.greenDim, padding: "3px 8px", borderRadius: 5 }}>✓ verified</span>
+                )}
               </div>
-            ))}
-          </div>
+            )
+          })}
+        </div>
 
-          {senders.length > 0 && (
-            <div style={{ marginTop: 16, fontSize: 12, color: C.textMuted, background: C.greenDim, border: `1px solid ${C.green}33`, borderRadius: 8, padding: "10px 14px" }}>
-              ✅ {senders.length} sender{senders.length > 1 ? "s" : ""} configured. Emails will be sent from a randomly selected sender each time.
-            </div>
-          )}
+        {senders.length > 0 && (
+          <div style={{ marginTop: 16, fontSize: 12, color: C.textMuted, background: C.greenDim, border: `1px solid ${C.green}33`, borderRadius: 8, padding: "10px 14px" }}>
+            ✅ {senders.length} of {allSenders.length} selected for rotation.
+          </div>
+        )}
+      </>
+    )}
+
+
+       
         </div>
       )}
 

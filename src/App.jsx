@@ -27,9 +27,7 @@ const NAV_ITEMS = [
   { id: "startups",  icon: "◉", label: "Startup Funding" },
   { id: "freelance", icon: "◐", label: "Freelance Jobs" },
   { id: "email",     icon: "✉", label: "Email" },
-  { id: "campaigns", icon: "◇", label: "Campaigns" },
-  { id: "templates", icon: "▦", label: "Templates" },
-  { id: "analytics", icon: "◎", label: "Analytics" },
+
 ];
 
 const STAT_CARDS = [
@@ -101,9 +99,7 @@ export default function Dashboard() {
               {active === "startups" && "Newly funded startups — company info, founder, email, phone auto-extracted"}
               {active === "freelance" && "Find remote freelance projects — Remotive, Arbeitnow, Himalayas"}
               {active === "email" && "Compose, send and track cold emails via Brevo"}
-              {active === "campaigns" && "Manage and schedule email campaigns"}
-              {active === "templates" && "Subject lines and body templates"}
-              {active === "analytics" && "Track opens, clicks and replies"}
+          
             </p>
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
@@ -118,9 +114,7 @@ export default function Dashboard() {
           {active === "startups"  && <StartupFundingPage />}
           {active === "freelance" && <FreelancePage />}
 {active === "email"     && <EmailPage leads={[]} />}
-          {active === "campaigns" && <ComingSoon label="Campaigns" desc="Set up email sequences and schedules once you have leads ready." />}
-          {active === "templates" && <ComingSoon label="Templates" desc="Add subject lines and body variations for anti-spam rotation." />}
-          {active === "analytics" && <ComingSoon label="Analytics" desc="Brevo API se live open and click tracking yahan dikhega." />}
+         
         </div>
       </main>
     </div>
@@ -1006,19 +1000,6 @@ function FreelancePage() {
           <p style={{ fontSize:14,color:COLORS.textSecondary }}>Keyword daalo — Remotive, Arbeitnow, Himalayas se live jobs aa jaayenge</p>
         </div>
       )}
-    </div>
-  );
-}
-
-// ==================== COMING SOON ====================
-
-function ComingSoon({ label, desc }) {
-  return (
-    <div style={{ display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",height:"60vh",textAlign:"center" }}>
-      <div style={{ width:56,height:56,borderRadius:14,background:COLORS.card,border:`1px solid ${COLORS.border}`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:24,marginBottom:16,color:COLORS.accent }}>◇</div>
-      <h2 style={{ fontSize:18,fontWeight:500,marginBottom:8 }}>{label}</h2>
-      <p style={{ fontSize:13,color:COLORS.textSecondary,maxWidth:340,lineHeight:1.6 }}>{desc}</p>
-      <p style={{ fontSize:11,color:COLORS.textMuted,marginTop:20 }}>Coming next — lead scraping pehle complete karo</p>
     </div>
   );
 }
