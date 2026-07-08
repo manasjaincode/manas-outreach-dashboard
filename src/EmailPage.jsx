@@ -279,14 +279,14 @@ const mapCsvToRecipients = (rows) => {
 // COLORS
 // ============================================================
 const C = {
-  bg: "#0A0A0A", surface: "#111111", card: "#161616",
-  border: "#222222", border2: "#2a2a2a",
-  accent: "#7C5CFC", accentDim: "#7C5CFC22",
-  green: "#22c55e", greenDim: "#22c55e18",
-  red: "#ef4444", redDim: "#ef444418",
-  yellow: "#f59e0b", yellowDim: "#f59e0b18",
-  cyan: "#06b6d4", cyanDim: "#06b6d418",
-  text: "#ffffff", textMuted: "#888888", textDim: "#444444",
+  bg: "#FFFFFF", surface: "#FFF7FA", card: "#FFFFFF",
+  border: "#F1D9E5", border2: "#E3AFC7",
+  accent: "#00BCD4", accentDim: "#00BCD41A",
+  green: "#0DB88E", greenDim: "#0DB88E15",
+  red: "#EF4462", redDim: "#EF446215",
+  yellow: "#F5A524", yellowDim: "#F5A52415",
+  cyan: "#FF5FA2", cyanDim: "#FF5FA21A",
+  text: "#1B1F27", textMuted: "#6B7280", textDim: "#AAB2BD",
 }
 
 // ============================================================
@@ -381,6 +381,9 @@ const bodyRef = useRef(null)   // 👈 YE ADD KARO
   // ── Sending ──
   const [sending, setSending] = useState(false)
   const [sendProgress, setSendProgress] = useState(null) // {current, total, waitingSec}
+  const [isPaused, setIsPaused] = useState(false)
+const pauseRequestRef = useRef(false)
+const resumeStateRef = useRef(null) // { queue, variantSequence, batchId, startIndex, cumulativeOffset }
   const [scheduleMode, setScheduleMode] = useState(false)
   const [scheduleDate, setScheduleDate] = useState("")
   const [scheduleTime, setScheduleTime] = useState("")
@@ -688,7 +691,67 @@ const handleAttachmentUpload = (e) => {
   })
   e.target.value = ""
 }
+const runImmediateSend = async (queue, variantSequence, batchId, startIndex = 0) => {
+  setSending(true)
+  pauseRequestRef.current = false
+  setIsPaused(false)
 
+  for (let i = startIndex; i < queue.length; i++) {
+    const recipient = queue[i]
+    setSendProgress({ current: i + 1, total: queue.length })
+    const sender = senders[Math.floor(Math.random() * senders.length)]
+    const variantIdx = variantSequence[i]
+    const preview = getPreviewFor(recipient, variantIdx)
+    try {
+      await brevoSendEmail({
+        fromEmail: sender.email, fromName: sender.name,
+        toEmail: recipient.email, toName: recipient.name || recipient.company,
+        subject: preview.subject, htmlContent: textToHtml(preview.body),
+        tags: [selectedIndustry, activeCategory, batchId],
+        cc: ccEmail.trim() ? [ccEmail.trim()] : [],
+        attachments: attachments,
+      })
+      setSentLog(prev => [...prev, { email: recipient.email, company: recipient.company, status: "sent", time: new Date().toLocaleTimeString(), sender: sender.email, batchId, variantUsed: variantIdx !== null ? variantIdx + 1 : "current editor" }])
+      setDailySentCount(c => c + 1)
+    } catch (err) {
+      setSentLog(prev => [...prev, { email: recipient.email, company: recipient.company, status: "error", error: err.message, time: new Date().toLocaleTimeString(), sender: sender.email, batchId }])
+    }
+
+    // 👇 Yahan check karo pause hua ya nahi — email complete hone ke turant baad
+    if (pauseRequestRef.current) {
+      resumeStateRef.current = { queue, variantSequence, batchId, startIndex: i + 1 }
+      setSending(false)
+      setIsPaused(true)
+      setSendProgress({ current: i + 1, total: queue.length, paused: true })
+      return // loop yahin ruk jaayega
+    }
+
+    if (i < queue.length - 1) {
+      const gapMs = 15000 + Math.floor(Math.random() * (240000 - 15000))
+      for (let remaining = Math.ceil(gapMs / 1000); remaining > 0; remaining--) {
+        // 👇 Countdown ke beech mein bhi pause check karo — turant rukna hai to
+        if (pauseRequestRef.current) {
+          resumeStateRef.current = { queue, variantSequence, batchId, startIndex: i + 1 }
+          setSending(false)
+          setIsPaused(true)
+          setSendProgress({ current: i + 1, total: queue.length, paused: true })
+          return
+        }
+        setSendProgress({ current: i + 1, total: queue.length, waitingSec: remaining })
+        await new Promise(r => setTimeout(r, 1000))
+      }
+    }
+  }
+  setSending(false)
+  setSendProgress(null)
+  setRecipients([])
+  resumeStateRef.current = null
+}
+const resumeSend = () => {
+  const saved = resumeStateRef.current
+  if (!saved) return
+  runImmediateSend(saved.queue, saved.variantSequence, saved.batchId, saved.startIndex)
+}
 const removeAttachment = (idx) => setAttachments(prev => prev.filter((_, i) => i !== idx))
   const sendAll = async () => {
     if (!BREVO_API_KEY) { alert("Add VITE_BREVO_API_KEY to .env"); return }
@@ -771,45 +834,10 @@ const sendAt = new Date(baseTime.getTime() + cumulativeOffset)
       return
     }
 
-    // ── IMMEDIATE MODE (existing behavior) ──
-    setSending(true)
-    setSendProgress({ current: 0, total: recipients.length })
-    const queue = [...recipients]
-let cumulativeOffset = 0   // 👈 ADD THIS
 
-    for (let i = 0; i < queue.length; i++) {
-      const recipient = queue[i]
-      setSendProgress({ current: i + 1, total: queue.length })
-      // Random sender selection
-      const sender = senders[Math.floor(Math.random() * senders.length)]
-      const variantIdx = variantSequence[i]
-      const preview = getPreviewFor(recipient, variantIdx)
-      try {
-       await brevoSendEmail({
-  fromEmail: sender.email, fromName: sender.name,
-  toEmail: recipient.email, toName: recipient.name || recipient.company,
-  subject: preview.subject, htmlContent: textToHtml(preview.body),
-  tags: [selectedIndustry, activeCategory, batchId],
-  cc: ccEmail.trim() ? [ccEmail.trim()] : [],
-  attachments: attachments,
-})
-        setSentLog(prev => [...prev, { email: recipient.email, company: recipient.company, status: "sent", time: new Date().toLocaleTimeString(), sender: sender.email, batchId, variantUsed: variantIdx !== null ? variantIdx + 1 : "current editor" }])
-        setDailySentCount(c => c + 1)
-      } catch (err) {
-        setSentLog(prev => [...prev, { email: recipient.email, company: recipient.company, status: "error", error: err.message, time: new Date().toLocaleTimeString(), sender: sender.email, batchId }])
-      }
-      // Random 15-20s human-like gap between sends (skip after last one)
-      if (i < queue.length - 1) {
-const gapMs = 15000 + Math.floor(Math.random() * (240000 - 15000)) // 15s to 4min, random each time
-        for (let remaining = Math.ceil(gapMs / 1000); remaining > 0; remaining--) {
-          setSendProgress({ current: i + 1, total: queue.length, waitingSec: remaining })
-          await new Promise(r => setTimeout(r, 1000))
-        }
-      }
-    }
-    setSending(false)
-    setSendProgress(null)
-    setRecipients([]) // clear queue after successful batch send
+// ── IMMEDIATE MODE ──
+    const queue = [...recipients]
+    await runImmediateSend(queue, variantSequence, batchId)
   }
 
 
@@ -1391,21 +1419,35 @@ return (
               )}
 
               <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-                <button onClick={sendAll} disabled={sending || recipients.length === 0 || !BREVO_API_KEY || senders.length === 0} style={{
-                  padding: "12px 28px", borderRadius: 8, border: "none",
+<button onClick={sendAll} disabled={sending || isPaused || recipients.length === 0 || !BREVO_API_KEY || senders.length === 0} style={{                  padding: "12px 28px", borderRadius: 8, border: "none",
                   background: (sending || recipients.length === 0 || !BREVO_API_KEY || senders.length === 0) ? C.border2 : (scheduleMode ? C.green : C.accent),
                   color: "#fff", fontWeight: 700, fontSize: 14, cursor: "pointer",
                 }}>
-                  {sending && sendProgress
-                    ? sendProgress.scheduling
-                      ? `📅 Scheduling ${sendProgress.current}/${sendProgress.total}...`
-                      : sendProgress.waitingSec
-                        ? `⏳ Sent ${sendProgress.current}/${sendProgress.total} — next in ${sendProgress.waitingSec}s`
-                        : `⏳ Sending ${sendProgress.current}/${sendProgress.total}...`
-                    : scheduleMode
-                      ? `📅 Schedule ${recipients.length} email${recipients.length !== 1 ? "s" : ""}`
-                      : `🚀 Send to ${recipients.length} recipient${recipients.length !== 1 ? "s" : ""}`}
+                {isPaused && sendProgress
+  ? `⏸ Paused at ${sendProgress.current}/${sendProgress.total}`
+  : sending && sendProgress
+    ? sendProgress.scheduling
+      ? `📅 Scheduling ${sendProgress.current}/${sendProgress.total}...`
+      : sendProgress.waitingSec
+        ? `⏳ Sent ${sendProgress.current}/${sendProgress.total} — next in ${sendProgress.waitingSec}s`
+        : `⏳ Sending ${sendProgress.current}/${sendProgress.total}...`
+    : scheduleMode
+      ? `📅 Schedule ${recipients.length} email${recipients.length !== 1 ? "s" : ""}`
+      : `🚀 Send to ${recipients.length} recipient${recipients.length !== 1 ? "s" : ""}`}
                 </button>
+                {sending && (
+  <button onClick={() => { pauseRequestRef.current = true }} style={{
+    padding: "12px 20px", borderRadius: 8, border: `1px solid ${C.yellow}44`,
+    background: C.yellowDim, color: C.yellow, fontWeight: 700, fontSize: 13, cursor: "pointer",
+  }}>⏸ Pause</button>
+)}
+
+{isPaused && !sending && (
+  <button onClick={resumeSend} style={{
+    padding: "12px 20px", borderRadius: 8, border: "none",
+    background: C.green, color: "#fff", fontWeight: 700, fontSize: 13, cursor: "pointer",
+  }}>▶ Resume ({resumeStateRef.current?.queue.length - resumeStateRef.current?.startIndex} left)</button>
+)}
                 <div style={{ fontSize: 12, color: C.textMuted }}>
                   {senders.length > 1 ? `🔀 Random across ${senders.length} senders` : "Single sender"}
                 </div>
@@ -1554,7 +1596,7 @@ return (
           {[
             { key: "critical", label: "🚨 Spam Risk", color: C.red, bg: C.redDim },
             { key: "warning", label: "⚠️ Bounced/Unsub", color: C.yellow, bg: C.yellowDim },
-            { key: "pending", label: "⏳ Not Delivered Yet", color: C.textMuted, bg: "#ffffff08" },
+            { key: "pending", label: "⏳ Not Delivered Yet", color: C.textMuted, bg: "#00000006" },
             { key: "safe", label: "✅ Healthy", color: C.green, bg: C.greenDim },
           ].map((r, idx) => (
             <div key={r.key} style={{
@@ -1698,7 +1740,7 @@ return (
         </div>
 
         {/* Info box */}
-        <div style={{ background: "#ffffff06", border: `1px solid ${C.border2}`, borderRadius: 10, padding: 16, fontSize: 12, color: C.textMuted, lineHeight: 1.8 }}>
+        <div style={{ background: "#00000005", border: `1px solid ${C.border2}`, borderRadius: 10, padding: 16, fontSize: 12, color: C.textMuted, lineHeight: 1.8 }}>
           <div style={{ fontWeight: 700, color: C.text, marginBottom: 6 }}>ℹ️ About spam tracking</div>
           <b style={{ color: C.text }}>What Brevo tracks:</b> When someone actively clicks "Report Spam" in Gmail/Outlook (via feedback loop). Also tracks hard bounces (email doesn't exist) and soft bounces (inbox full).<br/>
           <b style={{ color: C.text }}>What can't be tracked:</b> Gmail/Outlook silently moving mail to spam folder — this is invisible to all ESPs including Brevo.<br/>

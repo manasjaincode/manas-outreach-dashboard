@@ -2,23 +2,25 @@ import { useState } from "react";
 import { searchPlacesMulti, getPlaceDetails, enrichLead, ALL_FUNDING_SOURCES, fetchUpworkJobs, getUpworkSearchUrl, UPWORK_CATEGORIES } from "./config.js";
 import EmailPage from "./EmailPage.jsx";
 const COLORS = {
-  bg: "#0A0A0A",
-  surface: "#111111",
-  card: "#161616",
-  border: "#222222",
-  borderHover: "#333333",
-  accent: "#7C3AED",
-  accentDim: "#7C3AED22",
-  accentHover: "#6D28D9",
-  green: "#10B981",
-  greenDim: "#10B98115",
-  amber: "#F59E0B",
-  amberDim: "#F59E0B15",
-  red: "#EF4444",
-  redDim: "#EF444415",
-  text: "#FFFFFF",
-  textSecondary: "#888888",
-  textMuted: "#444444",
+  bg: "#FFFFFF",
+  surface: "#FFF7FA",
+  card: "#FFFFFF",
+  border: "#F1D9E5",
+  borderHover: "#FF9EC4",
+  accent: "#00BCD4",        // cyan — primary buttons/active states
+  accentDim: "#00BCD41A",
+  accentHover: "#00A5BD",
+  pink: "#FF5FA2",          // 👈 NEW — creative highlight color
+  pinkDim: "#FF5FA21A",
+  green: "#0DB88E",
+  greenDim: "#0DB88E15",
+  amber: "#F5A524",
+  amberDim: "#F5A52415",
+  red: "#EF4462",
+  redDim: "#EF446215",
+  text: "#1B1F27",
+  textSecondary: "#6B7280",
+  textMuted: "#AAB2BD",
 };
 
 const NAV_ITEMS = [
@@ -46,7 +48,7 @@ export default function Dashboard() {
       <aside style={{ width: 220, background: COLORS.surface, borderRight: `1px solid ${COLORS.border}`, display: "flex", flexDirection: "column", flexShrink: 0 }}>
         <div style={{ padding: "24px 20px 20px", borderBottom: `1px solid ${COLORS.border}` }}>
           <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 6 }}>
-            <div style={{ width: 28, height: 28, background: COLORS.accent, borderRadius: 6, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 14, fontWeight: 700, color: "#fff" }}>B</div>
+<div style={{ width: 28, height: 28, background: `linear-gradient(135deg, ${COLORS.pink}, ${COLORS.accent})`, borderRadius: 6, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 14, fontWeight: 700, color: "#fff" }}>B</div>
             <span style={{ fontSize: 13, fontWeight: 600 }}>Brain Inventory</span>
           </div>
           <p style={{ fontSize: 10, color: COLORS.textMuted, letterSpacing: "0.08em", textTransform: "uppercase" }}>Cold outreach suite</p>
@@ -61,7 +63,7 @@ export default function Dashboard() {
                 style={{
                   display: "flex", alignItems: "center", gap: 10, width: "100%", padding: "9px 12px",
                   borderRadius: 8, border: "none",
-                  background: isActive ? COLORS.accentDim : hovered === item.id ? "#ffffff08" : "transparent",
+background: isActive ? COLORS.accentDim : hovered === item.id ? COLORS.pinkDim : "transparent",
                   color: isActive ? COLORS.accent : COLORS.textSecondary,
                   fontSize: 13, fontWeight: isActive ? 500 : 400, cursor: "pointer", textAlign: "left",
                   marginBottom: 2, transition: "all 0.15s ease",
@@ -131,7 +133,7 @@ function OverviewPage({ setActive }) {
     { id: "leads",    icon: "◈", title: "Scrape leads",      desc: "Google Maps se targeted businesses nikalo — category aur city ke basis pe", color: COLORS.accent, dimColor: COLORS.accentDim, badge: "Start here" },
     { id: "startups", icon: "◉", title: "Startup funding",   desc: "Newly funded startups — founder, email, phone automatically extract hoga", color: COLORS.green,  dimColor: COLORS.greenDim,  badge: null },
     { id: "freelance",icon: "◐", title: "Freelance projects",desc: "Remote jobs from Remotive, Arbeitnow, Himalayas — direct apply links", color: COLORS.amber, dimColor: COLORS.amberDim, badge: null },
-    { id: "analytics",icon: "◎", title: "View analytics",    desc: "Brevo se real-time open rate, clicks, bounces track karo", color: COLORS.red, dimColor: COLORS.redDim, badge: null },
+{ id: "analytics",icon: "◎", title: "View analytics",    desc: "Brevo se real-time open rate, clicks, bounces track karo", color: COLORS.pink, dimColor: COLORS.pinkDim, badge: null },
   ];
 
   return (
