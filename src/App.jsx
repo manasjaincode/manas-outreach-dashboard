@@ -1,6 +1,9 @@
 import { useState } from "react";
 import { searchPlacesMulti, getPlaceDetails, enrichLead, ALL_FUNDING_SOURCES, fetchUpworkJobs, getUpworkSearchUrl, UPWORK_CATEGORIES } from "./config.js";
 import EmailPage from "./EmailPage.jsx";
+import AuthGate from "./AuthGate.jsx";   // 👈 ye add karo
+import { logout } from "./lib/auth.js";   // 👈 ye add karo
+
 const COLORS = {
   bg: "#FFFFFF",
   surface: "#FFF7FA",
@@ -42,8 +45,14 @@ const STAT_CARDS = [
 export default function Dashboard() {
   const [active, setActive] = useState("overview");
   const [hovered, setHovered] = useState(null);
-
-  return (
+  const handleLogout = () => {           // 👈 ye add karo
+    if (window.confirm("Log out karna hai?")) {
+      logout();
+      window.location.reload();
+    }
+  };
+ return (
+    <AuthGate>
     <div style={{ display: "flex", height: "100vh", background: COLORS.bg, fontFamily: "'Inter', 'SF Pro Display', system-ui, sans-serif", color: COLORS.text, overflow: "hidden" }}>
       <aside style={{ width: 220, background: COLORS.surface, borderRight: `1px solid ${COLORS.border}`, display: "flex", flexDirection: "column", flexShrink: 0 }}>
         <div style={{ padding: "24px 20px 20px", borderBottom: `1px solid ${COLORS.border}` }}>
@@ -52,7 +61,7 @@ export default function Dashboard() {
             <span style={{ fontSize: 13, fontWeight: 600 }}>Brain Inventory</span>
           </div>
           <p style={{ fontSize: 10, color: COLORS.textMuted, letterSpacing: "0.08em", textTransform: "uppercase" }}>Cold outreach suite</p>
-        </div>
+        </div> 
 
         <nav style={{ flex: 1, padding: "12px 10px" }}>
           {NAV_ITEMS.map(item => {
@@ -83,10 +92,21 @@ background: isActive ? COLORS.accentDim : hovered === item.id ? COLORS.pinkDim :
           })}
         </nav>
 
-        <div style={{ padding: "16px 20px", borderTop: `1px solid ${COLORS.border}` }}>
-          <p style={{ fontSize: 10, color: COLORS.textMuted, lineHeight: 1.6 }}>Built for Brain Inventory</p>
-          <p style={{ fontSize: 10, color: COLORS.textMuted }}>by <span style={{ color: COLORS.accent }}>Manas Jain</span></p>
-        </div>
+     <div style={{ padding: "16px 20px", borderTop: `1px solid ${COLORS.border}` }}>
+  <p style={{ fontSize: 10, color: COLORS.textMuted, lineHeight: 1.6 }}>Built for Brain Inventory</p>
+  <p style={{ fontSize: 10, color: COLORS.textMuted, marginBottom: 10 }}>by <span style={{ color: COLORS.accent }}>Manas Jain</span></p>
+  <button onClick={handleLogout} style={{
+    display: "flex", alignItems: "center", gap: 6, width: "100%",
+    padding: "7px 10px", borderRadius: 7, border: `1px solid ${COLORS.border}`,
+    background: "transparent", color: COLORS.textSecondary, fontSize: 12,
+    cursor: "pointer", fontFamily: "inherit", transition: "all 0.15s ease",
+  }}
+    onMouseEnter={e => { e.currentTarget.style.background = COLORS.redDim; e.currentTarget.style.color = COLORS.red; e.currentTarget.style.borderColor = COLORS.red + "44"; }}
+    onMouseLeave={e => { e.currentTarget.style.background = "transparent"; e.currentTarget.style.color = COLORS.textSecondary; e.currentTarget.style.borderColor = COLORS.border; }}
+  >
+    ⏻ Log out
+  </button>
+</div>
       </aside>
 
       <main style={{ flex: 1, overflow: "auto", display: "flex", flexDirection: "column" }}>
@@ -119,7 +139,7 @@ background: isActive ? COLORS.accentDim : hovered === item.id ? COLORS.pinkDim :
          
         </div>
       </main>
-    </div>
+    </div>  </AuthGate>
   );
 }
 
