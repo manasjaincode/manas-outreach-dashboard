@@ -129,6 +129,16 @@ export const getFreelanceJobs = (keyword) => call("getFreelanceJobs", { keyword 
 
 export const getJob = (jobId) => call("getJob", { jobId })
 
+// Pauses a running/queued job. Takes effect after the current in-flight
+// chunk finishes (up to ~4.5 min) — Apps Script executions can't be
+// interrupted mid-run from an outside call. Any recipients already sent
+// to Brevo with a future scheduledAt will still deliver at that time.
+export const pauseJob = (jobId) => call("pauseJob", { jobId })
+
+// Resumes a paused job — continues from the exact recipient index it
+// left off at (progress is stored server-side, not re-shuffled).
+export const resumeJob = (jobId) => call("resumeJob", { jobId })
+
 // Simple poll helper: calls getJob every `intervalMs` until status is
 // "done" or "failed", or until maxWaitMs is exceeded. Pass onUpdate to
 // get live progress (e.g. update a status bar in the UI).
@@ -172,9 +182,11 @@ export const deleteRecipient = (id) => call("deleteRecipient", { id })
 
 export const getSenders = () => call("getSenders")
 
-// payload: { recipients, subject, body, industry, category, ccEmail,
-//            attachments, scheduleMode, scheduleDate, scheduleTime, rotateVariants }
-// Returns { ok, jobId } — background job, poll with getJob/pollJob
+// payload: { subject, body, templates: [{subject,body}] (optional, up to 5),
+//            rotateVariants: bool, recipients, senders, ccEmail,
+//            attachments: [{name,base64}] }
+// Returns { ok, jobId, batchId } — background job, poll with getJob/pollJob.
+// Pause/resume it anytime with pauseJob(jobId) / resumeJob(jobId).
 export const startEmailSend = (payload) => call("startEmailSend", payload)
 
 export const getEmailStats = () => call("getEmailStats")
