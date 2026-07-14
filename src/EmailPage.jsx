@@ -40,17 +40,6 @@ const saveTemplateLibrary = (lib) => {
 }
 
 // ============================================================
-// BREVO API FUNCTIONS===========================
-// BREVO CONFIG — add these to your .env
-// VITE_BREVO_API_KEY=xkeysib-xxxx   (Settings → API Keys in Brevo)
-// Sender IDs configured in Brevo dashboard under Senders & IPs
-// ============================================================
-
-
-// ============================================================
-// BREVO API FUNCTIONS
-// ============================================================
-// ============================================================
 // BREVO API
 // ============================================================
 
@@ -290,10 +279,43 @@ const C = {
 }
 
 // ============================================================
+// TOAST — small floating notification, auto-dismisses after 3s
+// type: "error" (red) | "success" (green)
+// ============================================================
+function Toast({ toast, onClose }) {
+  useEffect(() => {
+    if (!toast) return
+    const t = setTimeout(onClose, 3000)
+    return () => clearTimeout(t)
+  }, [toast])
+
+  if (!toast) return null
+  const isError = toast.type === "error"
+
+  return (
+    <div style={{
+      position: "fixed", bottom: 28, right: 28, zIndex: 3000,
+      display: "flex", alignItems: "center", gap: 10,
+      background: isError ? C.red : C.green,
+      color: "#fff", padding: "13px 20px", borderRadius: 10,
+      fontSize: 13, fontWeight: 600, boxShadow: "0 14px 36px rgba(0,0,0,0.35)",
+      animation: "toastSlideIn 0.25s ease both", maxWidth: 380,
+    }}>
+      <span style={{ fontSize: 16, flexShrink: 0 }}>{isError ? "⚠️" : "✅"}</span>
+      <span>{toast.message}</span>
+    </div>
+  )
+}
+
+// ============================================================
 // MAIN COMPONENT
 // ============================================================
 
 export default function EmailPage({ leads = [] }) {
+  // ── Toast notifications ──
+  const [toast, setToast] = useState(null) // { id, message, type }
+  const showToast = (message, type = "success") => setToast({ id: Date.now(), message, type })
+
   // ── Sender management (dynamic — add/remove in UI) ──
 
  const [allSenders, setAllSenders] = useState([]) // Brevo se fetched
@@ -513,6 +535,17 @@ useEffect(() => {
 
   const tmSaveVariant = () => {
     if (!tmEditingVariant) return
+    if (!tmVariantSubject.trim() || !tmVariantBody.trim()) {
+      showToast(
+        !tmVariantSubject.trim() && !tmVariantBody.trim()
+          ? "Subject aur Body dono khali hain — variant save nahi hua!"
+          : !tmVariantSubject.trim()
+          ? "Subject khali hai — variant save nahi hua!"
+          : "Body khali hai — variant save nahi hua!",
+        "error"
+      )
+      return
+    }
     const { industryKey, categoryKey, variantIdx } = tmEditingVariant
     const updated = JSON.parse(JSON.stringify(templateLibrary))
     updated[industryKey][categoryKey][variantIdx].subject = tmVariantSubject
@@ -523,6 +556,7 @@ useEffect(() => {
       setSubjectOverride(tmVariantSubject)
       setBodyOverride(tmVariantBody)
     }
+    showToast(`Variant ${variantIdx + 1} successfully created!`, "success")
   }
 
   // Save senders to localStorage when changed
@@ -754,6 +788,17 @@ const resumeSend = () => {
 }
 const removeAttachment = (idx) => setAttachments(prev => prev.filter((_, i) => i !== idx))
   const sendAll = async () => {
+    if (!subjectOverride.trim() || !bodyOverride.trim()) {
+      showToast(
+        !subjectOverride.trim() && !bodyOverride.trim()
+          ? "Subject aur Body dono khali hain — pehle bharo!"
+          : !subjectOverride.trim()
+          ? "Subject khali hai — mail bhejne se pehle bharo!"
+          : "Body khali hai — mail bhejne se pehle bharo!",
+        "error"
+      )
+      return
+    }
     if (!BREVO_API_KEY) { alert("Add VITE_BREVO_API_KEY to .env"); return }
     if (senders.length === 0) { alert("Add at least one sender email"); return }
     if (recipients.length === 0) { alert("No recipients added"); return }
@@ -962,6 +1007,10 @@ return (
         0%, 100% { box-shadow: 0 0 0 0 rgba(239,68,68,0.4); }
         50% { box-shadow: 0 0 0 6px rgba(239,68,68,0); }
       }
+      @keyframes toastSlideIn {
+        from { opacity: 0; transform: translateY(12px) scale(0.97); }
+        to { opacity: 1; transform: translateY(0) scale(1); }
+      }
     `}</style>
       {/* Top nav */}
       <div style={{ borderBottom: `1px solid ${C.border}`, padding: "0 24px", display: "flex", alignItems: "center", gap: 4, background: C.surface }}>
@@ -1146,7 +1195,8 @@ return (
                     />
                     <button onClick={() => {
                       const count = addBulkRecipients(bulkPasteText)
-                      if (count) { setBulkPasteText(""); }
+                      if (count) { setBulkPasteText(""); showToast(`${count} recipient${count !== 1 ? "s" : ""} added!`, "success") }
+                      else showToast("Koi valid email nahi mila paste mein!", "error")
                     }} style={{
                       width: "100%", marginTop: 6, background: C.accentDim, border: `1px solid ${C.accent}44`,
                       color: C.accent, padding: 8, borderRadius: 6, cursor: "pointer", fontSize: 12, fontWeight: 600,
@@ -1165,7 +1215,11 @@ return (
                       style={{ background: C.card, border: `1px solid ${C.border2}`, color: C.text, padding: "7px 10px", borderRadius: 6, fontSize: 12 }} />
                       <input placeholder="City" value={addCityInput} onChange={e => setAddCityInput(e.target.value)}
   style={{ background: C.card, border: `1px solid ${C.border2}`, color: C.text, padding: "7px 10px", borderRadius: 6, fontSize: 12 }} />
-                    <button onClick={addManualRecipient} style={{ background: C.accentDim, border: `1px solid ${C.accent}44`, color: C.accent, padding: 7, borderRadius: 6, cursor: "pointer", fontSize: 12 }}>+ Add Recipient</button>
+                    <button onClick={() => {
+                      if (!addEmailInput.trim()) { showToast("Email khali hai — bharo pehle!", "error"); return }
+                      addManualRecipient()
+                      showToast("Recipient added!", "success")
+                    }} style={{ background: C.accentDim, border: `1px solid ${C.accent}44`, color: C.accent, padding: 7, borderRadius: 6, cursor: "pointer", fontSize: 12 }}>+ Add Recipient</button>
                   </div>
                 )}
 
@@ -1220,7 +1274,7 @@ return (
             <div style={{ padding: "20px 24px 0" }}>
               <div style={{ fontSize: 11, color: C.textMuted, marginBottom: 6, textTransform: "uppercase", letterSpacing: 1 }}>Subject</div>
               <input value={subjectOverride} onChange={e => setSubjectOverride(e.target.value)}
-                style={{ width: "100%", background: C.card, border: `1px solid ${C.border2}`, color: C.text, padding: "10px 14px", borderRadius: 8, fontSize: 14, fontWeight: 600, boxSizing: "border-box" }} />
+                style={{ width: "100%", background: C.card, border: `1px solid ${subjectOverride.trim() ? C.border2 : C.red + "77"}`, color: C.text, padding: "10px 14px", borderRadius: 8, fontSize: 14, fontWeight: 600, boxSizing: "border-box" }} />
               <div style={{ fontSize: 11, color: C.textDim, marginTop: 4 }}>Variables: {'{{company}}'} {'{{contact}}'} {'{{city}}'} {'{{custom_line}}'} {'{{sender_name}}'}</div>
             </div>
 
@@ -1250,7 +1304,7 @@ return (
   </div>
 
   <textarea ref={bodyRef} value={bodyOverride} onChange={e => setBodyOverride(e.target.value)}
-    style={{ width: "100%", height: 340, background: C.card, border: `1px solid ${C.border2}`, color: C.text, padding: 14, borderRadius: 8, fontSize: 13, lineHeight: 1.7, resize: "vertical", boxSizing: "border-box", fontFamily: "monospace" }} />
+    style={{ width: "100%", height: 340, background: C.card, border: `1px solid ${bodyOverride.trim() ? C.border2 : C.red + "77"}`, color: C.text, padding: 14, borderRadius: 8, fontSize: 13, lineHeight: 1.7, resize: "vertical", boxSizing: "border-box", fontFamily: "monospace" }} />
 </div>
             {/* AI Inbox Score & Suggestions */}
 <div style={{ padding: "0 24px 16px" }}>
@@ -2069,7 +2123,7 @@ return (
 
             <div style={{ padding: "14px 24px", borderTop: `1px solid ${C.border}`, background: C.card, display: "flex", justifyContent: "space-between", alignItems: "center", flexShrink: 0 }}>
               <div style={{ fontSize: 11, color: C.textDim }}>Already-added emails duplicate check mein automatically skip ho jaayenge</div>
-              <button onClick={confirmCsvImport} disabled={csvSelectedCount === 0} style={{
+              <button onClick={() => { const count = csvSelectedCount; confirmCsvImport(); if (count) showToast(`${count} recipient${count !== 1 ? "s" : ""} imported!`, "success") }} disabled={csvSelectedCount === 0} style={{
                 padding: "9px 22px", borderRadius: 7, border: "none", cursor: csvSelectedCount === 0 ? "not-allowed" : "pointer",
                 background: csvSelectedCount === 0 ? C.border2 : C.accent, color: "#fff", fontSize: 13, fontWeight: 700,
               }}>📥 Add {csvSelectedCount} Selected Recipient{csvSelectedCount !== 1 ? "s" : ""}</button>
@@ -2126,9 +2180,10 @@ return (
                               style={{ background: C.surface, border: `1px solid ${C.border2}`, color: C.text, padding: "6px 9px", borderRadius: 5, fontSize: 12 }} />
                             <div style={{ display: "flex", gap: 6, marginTop: 4 }}>
                               <button onClick={() => {
-                                if (!editForm.email.trim()) return
+                                if (!editForm.email.trim()) { showToast("Email khali hai — save nahi hoga!", "error"); return }
                                 updateRecipient(r.email, editForm)
                                 setEditingEmail(null)
+                                showToast("Recipient updated!", "success")
                               }} style={{ flex: 1, background: C.accent, border: "none", color: "#fff", padding: 7, borderRadius: 6, cursor: "pointer", fontSize: 12, fontWeight: 600 }}>✅ Save</button>
                               <button onClick={() => setEditingEmail(null)} style={{ flex: 1, background: "transparent", border: `1px solid ${C.border2}`, color: C.textMuted, padding: 7, borderRadius: 6, cursor: "pointer", fontSize: 12 }}>Cancel</button>
                             </div>
@@ -2155,7 +2210,7 @@ return (
             </div>
 
             <div style={{ padding: "14px 24px", borderTop: `1px solid ${C.border}`, background: C.card, display: "flex", justifyContent: "space-between", alignItems: "center", flexShrink: 0 }}>
-              <button onClick={() => { if (window.confirm("Sab recipients clear kar dein?")) setRecipients([]) }} style={{ fontSize: 12, padding: "8px 16px", borderRadius: 7, border: `1px solid ${C.redDim}`, background: "transparent", color: C.red, cursor: "pointer" }}>Clear All</button>
+              <button onClick={() => { if (window.confirm("Sab recipients clear kar dein?")) { setRecipients([]); showToast("All recipients cleared!", "success") } }} style={{ fontSize: 12, padding: "8px 16px", borderRadius: 7, border: `1px solid ${C.redDim}`, background: "transparent", color: C.red, cursor: "pointer" }}>Clear All</button>
               <button onClick={() => setShowRecipientsModal(false)} style={{ padding: "8px 20px", borderRadius: 7, background: C.accent, border: "none", color: "#fff", fontSize: 13, fontWeight: 600, cursor: "pointer" }}>Done</button>
             </div>
           </div>
@@ -2289,6 +2344,9 @@ return (
           </>
         )
       })()}
+
+      {/* ── TOAST — global floating notification ── */}
+      <Toast toast={toast} onClose={() => setToast(null)} />
     </div>
   )
 }

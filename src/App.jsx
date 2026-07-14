@@ -27,7 +27,7 @@ const COLORS = {
 };
 
 const NAV_ITEMS = [
-  { id: "overview",  icon: "⬡", label: "Overview" },
+  { id: "overview",  icon: "⬡", label: "Analytics" },
   { id: "leads",     icon: "◈", label: "Lead scraping" },
   { id: "startups",  icon: "◉", label: "Startup Funding" },
   { id: "freelance", icon: "◐", label: "Freelance Jobs" },
@@ -116,7 +116,7 @@ background: isActive ? COLORS.accentDim : hovered === item.id ? COLORS.pinkDim :
               {NAV_ITEMS.find(n => n.id === active)?.label}
             </h1>
             <p style={{ fontSize: 12, color: COLORS.textSecondary, margin: "3px 0 0" }}>
-              {active === "overview" && "Your cold email automation hub"}
+              {active === "overview" && "Real-time performance across your outreach campaigns"}
               {active === "leads" && "Scrape targeted leads from Google Maps"}
               {active === "startups" && "Newly funded startups — company info, founder, email, phone auto-extracted"}
               {active === "freelance" && "Find remote freelance projects — Remotive, Arbeitnow, Himalayas"}
@@ -143,26 +143,72 @@ background: isActive ? COLORS.accentDim : hovered === item.id ? COLORS.pinkDim :
   );
 }
 
-// ==================== OVERVIEW ====================
+// ==================== OVERVIEW / ANALYTICS ====================
 
 function OverviewPage({ setActive }) {
   const [hoveredCard, setHoveredCard] = useState(null);
-  const [hoveredAction, setHoveredAction] = useState(null);
 
-  const quickActions = [
-    { id: "leads",    icon: "◈", title: "Scrape leads",      desc: "Google Maps se targeted businesses nikalo — category aur city ke basis pe", color: COLORS.accent, dimColor: COLORS.accentDim, badge: "Start here" },
-    { id: "startups", icon: "◉", title: "Startup funding",   desc: "Newly funded startups — founder, email, phone automatically extract hoga", color: COLORS.green,  dimColor: COLORS.greenDim,  badge: null },
-    { id: "freelance",icon: "◐", title: "Freelance projects",desc: "Remote jobs from Remotive, Arbeitnow, Himalayas — direct apply links", color: COLORS.amber, dimColor: COLORS.amberDim, badge: null },
-{ id: "analytics",icon: "◎", title: "View analytics",    desc: "Brevo se real-time open rate, clicks, bounces track karo", color: COLORS.pink, dimColor: COLORS.pinkDim, badge: null },
+  const userName = "Manas";
+  const initials = "MJ";
+  const today = new Date().toLocaleDateString("en-IN", { weekday: "long", day: "numeric", month: "long" });
+
+  const funnelStages = [
+    { label: "Leads scraped", value: 0, icon: "◈", color: COLORS.accent },
+    { label: "Enriched",      value: 0, icon: "✦", color: COLORS.pink   },
+    { label: "Emails sent",   value: 0, icon: "✉", color: COLORS.green  },
+    { label: "Replies",       value: 0, icon: "↩", color: COLORS.amber  },
   ];
+
+  const integrations = [
+    { label: "Google Maps API",            status: "Connected",     live: true  },
+    { label: "Website + email enrichment", status: "Active",        live: true  },
+    { label: "Startup funding feed",       status: "Active",        live: true  },
+    { label: "Brevo SMTP",                 status: "Not connected", live: false },
+  ];
+
+  const eyebrow = { fontSize: 11, color: COLORS.textMuted, letterSpacing: "0.1em", textTransform: "uppercase", marginBottom: 14 };
 
   return (
     <div>
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 14, marginBottom: 32 }}>
+      {/* Greeting */}
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 30 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
+          <div style={{
+            width: 46, height: 46, borderRadius: "50%",
+            background: `linear-gradient(135deg, ${COLORS.pink}, ${COLORS.accent})`,
+            display: "flex", alignItems: "center", justifyContent: "center",
+            color: "#fff", fontSize: 15, fontWeight: 700, letterSpacing: "-0.3px",
+            boxShadow: `0 6px 16px ${COLORS.accent}30`, flexShrink: 0,
+          }}>{initials}</div>
+          <div>
+            <h2 style={{ fontSize: 20, fontWeight: 600, margin: 0, letterSpacing: "-0.3px" }}>Heyy {userName} 👋</h2>
+            <p style={{ fontSize: 12.5, color: COLORS.textSecondary, margin: "3px 0 0" }}>
+              Here's how your outreach engine is performing.
+            </p>
+          </div>
+        </div>
+        <div style={{ textAlign: "right" }}>
+          <div style={{ fontSize: 11, color: COLORS.textMuted, letterSpacing: "0.06em" }}>{today}</div>
+          <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 4, justifyContent: "flex-end" }}>
+            <span style={{ width: 6, height: 6, borderRadius: "50%", background: COLORS.green, boxShadow: `0 0 6px ${COLORS.green}` }} />
+            <span style={{ fontSize: 11, color: COLORS.textSecondary }}>All systems live</span>
+          </div>
+        </div>
+      </div>
+
+      {/* KPI cards */}
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 14, marginBottom: 28 }}>
         {STAT_CARDS.map((card, i) => (
           <div key={i} onMouseEnter={() => setHoveredCard(i)} onMouseLeave={() => setHoveredCard(null)}
-            style={{ background: COLORS.card, border: `1px solid ${hoveredCard === i ? COLORS.borderHover : COLORS.border}`, borderRadius: 12, padding: "18px 20px", transition: "border-color 0.15s ease" }}>
-            <div style={{ width: 6, height: 6, borderRadius: "50%", background: card.color, marginBottom: 14, boxShadow: `0 0 8px ${card.color}` }} />
+            style={{
+              background: COLORS.card, border: `1px solid ${hoveredCard === i ? COLORS.borderHover : COLORS.border}`,
+              borderRadius: 12, padding: "18px 20px", transition: "border-color 0.15s ease, transform 0.15s ease",
+              transform: hoveredCard === i ? "translateY(-2px)" : "none",
+            }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 14 }}>
+              <div style={{ width: 6, height: 6, borderRadius: "50%", background: card.color, boxShadow: `0 0 8px ${card.color}` }} />
+              <span style={{ fontSize: 10, color: COLORS.textMuted, background: COLORS.surface, padding: "2px 7px", borderRadius: 20 }}>No data yet</span>
+            </div>
             <div style={{ fontSize: 28, fontWeight: 600, letterSpacing: "-0.8px" }}>{card.value}</div>
             <div style={{ fontSize: 12, color: COLORS.textSecondary, marginTop: 4 }}>{card.label}</div>
             <div style={{ fontSize: 11, color: COLORS.textMuted, marginTop: 2 }}>{card.sub}</div>
@@ -170,35 +216,58 @@ function OverviewPage({ setActive }) {
         ))}
       </div>
 
-      <p style={{ fontSize: 11, color: COLORS.textMuted, letterSpacing: "0.1em", textTransform: "uppercase", marginBottom: 14 }}>Quick actions</p>
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14, marginBottom: 28 }}>
-        {quickActions.map(action => (
-          <button key={action.id} onClick={() => setActive(action.id)}
-            onMouseEnter={() => setHoveredAction(action.id)} onMouseLeave={() => setHoveredAction(null)}
-            style={{ background: hoveredAction === action.id ? action.dimColor : COLORS.card, border: `1px solid ${hoveredAction === action.id ? action.color + "44" : COLORS.border}`, borderRadius: 12, padding: "20px 22px", cursor: "pointer", textAlign: "left", transition: "all 0.15s ease", display: "flex", flexDirection: "column", gap: 8 }}>
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-              <span style={{ fontSize: 20, color: action.color }}>{action.icon}</span>
-              {action.badge && <span style={{ fontSize: 9, background: action.color, color: "#fff", padding: "2px 8px", borderRadius: 10, fontWeight: 600, textTransform: "uppercase" }}>{action.badge}</span>}
+      {/* Outreach funnel — signature element, mirrors the product's real pipeline */}
+      <p style={eyebrow}>Outreach funnel</p>
+      <div style={{ background: COLORS.card, border: `1px solid ${COLORS.border}`, borderRadius: 12, padding: "24px 28px", marginBottom: 28 }}>
+        <div style={{ display: "flex", alignItems: "center" }}>
+          {funnelStages.map((stage, i) => (
+            <div key={i} style={{ display: "flex", alignItems: "center", flex: i < funnelStages.length - 1 ? 1 : "none" }}>
+              <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 8, minWidth: 90 }}>
+                <div style={{
+                  width: 40, height: 40, borderRadius: "50%", background: stage.color + "15",
+                  border: `1.5px solid ${stage.color}44`, display: "flex", alignItems: "center", justifyContent: "center",
+                  fontSize: 16, color: stage.color,
+                }}>{stage.icon}</div>
+                <div style={{ fontSize: 18, fontWeight: 600 }}>{stage.value}</div>
+                <div style={{ fontSize: 11, color: COLORS.textMuted, textAlign: "center", whiteSpace: "nowrap" }}>{stage.label}</div>
+              </div>
+              {i < funnelStages.length - 1 && (
+                <div style={{ flex: 1, height: 1, background: COLORS.border, margin: "0 6px 26px" }} />
+              )}
             </div>
-            <div style={{ fontSize: 14, fontWeight: 500 }}>{action.title}</div>
-            <div style={{ fontSize: 12, color: COLORS.textSecondary, lineHeight: 1.5 }}>{action.desc}</div>
-          </button>
-        ))}
+          ))}
+        </div>
+        <p style={{ fontSize: 11.5, color: COLORS.textMuted, textAlign: "center", marginTop: 18, marginBottom: 0 }}>
+          This fills in automatically as leads move from scraping → enrichment → email → reply.
+        </p>
       </div>
 
-      <p style={{ fontSize: 11, color: COLORS.textMuted, letterSpacing: "0.1em", textTransform: "uppercase", marginBottom: 14 }}>Pipeline status</p>
-      <div style={{ background: COLORS.card, border: `1px solid ${COLORS.border}`, borderRadius: 12, padding: "18px 22px" }}>
-        {[
-          { label: "Google Maps API", status: "Connected", color: COLORS.green },
-          { label: "Website + Email enrichment", status: "Active (Gemini)", color: COLORS.green },
-          { label: "Startup news (Google News RSS)", status: "Active", color: COLORS.green },
-          { label: "Brevo SMTP", status: "Not configured", color: COLORS.textMuted },
-        ].map((item, i) => (
-          <div key={i} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "10px 0", borderBottom: i < 3 ? `1px solid ${COLORS.border}` : "none" }}>
-            <span style={{ fontSize: 13, color: COLORS.textSecondary }}>{item.label}</span>
-            <span style={{ fontSize: 12, color: item.color }}>{item.status}</span>
+      {/* Activity trend + system status */}
+      <div style={{ display: "grid", gridTemplateColumns: "1.4fr 1fr", gap: 16 }}>
+        <div style={{ background: COLORS.card, border: `1px solid ${COLORS.border}`, borderRadius: 12, padding: "26px 28px", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", textAlign: "center", minHeight: 220 }}>
+          <div style={{ fontSize: 32, marginBottom: 10, color: COLORS.textMuted }}>◎</div>
+          <p style={{ fontSize: 14, fontWeight: 500, margin: 0 }}>No campaign activity yet</p>
+          <p style={{ fontSize: 12, color: COLORS.textSecondary, margin: "6px 0 18px", maxWidth: 320 }}>
+            Once you scrape leads and send your first emails, activity trends will show up here.
+          </p>
+          <div style={{ display: "flex", gap: 10 }}>
+            <button onClick={() => setActive("leads")} style={{ padding: "8px 18px", background: COLORS.accent, border: "none", borderRadius: 8, color: "#fff", fontSize: 12.5, fontWeight: 600, cursor: "pointer", fontFamily: "inherit" }}>Scrape leads</button>
+            <button onClick={() => setActive("email")} style={{ padding: "8px 18px", background: "transparent", border: `1px solid ${COLORS.border}`, borderRadius: 8, color: COLORS.textSecondary, fontSize: 12.5, cursor: "pointer", fontFamily: "inherit" }}>Compose email</button>
           </div>
-        ))}
+        </div>
+
+        <div style={{ background: COLORS.card, border: `1px solid ${COLORS.border}`, borderRadius: 12, padding: "18px 22px" }}>
+          <p style={{ ...eyebrow, marginBottom: 16 }}>System status</p>
+          {integrations.map((item, i) => (
+            <div key={i} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "9px 0", borderBottom: i < integrations.length - 1 ? `1px solid ${COLORS.border}` : "none" }}>
+              <span style={{ fontSize: 12.5, color: COLORS.textSecondary }}>{item.label}</span>
+              <span style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 11.5, color: item.live ? COLORS.green : COLORS.textMuted }}>
+                <span style={{ width: 5, height: 5, borderRadius: "50%", background: item.live ? COLORS.green : COLORS.textMuted }} />
+                {item.status}
+              </span>
+            </div>
+          ))}
+        </div>
       </div>
     </div>
   );

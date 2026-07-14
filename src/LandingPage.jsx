@@ -54,23 +54,23 @@ export default function LandingPage({ onLoginSuccess }) {
     }
   }, [])
 
-  const handleSubmit = (e) => {
+  // 👇 login() now hits the real backend (network call), so this is async.
+  // No more artificial setTimeout delay — the real request IS the delay.
+  const handleSubmit = async (e) => {
     e?.preventDefault()
     if (submitting) return
     setSubmitting(true)
     setError("")
-    // tiny artificial delay so it doesn't feel instantaneous/fake
-    setTimeout(() => {
-      const res = login(username, password)
-      if (res.ok) {
-        onLoginSuccess?.()
-      } else {
-        setError(res.error)
-        setShake(true)
-        setTimeout(() => setShake(false), 420)
-      }
-      setSubmitting(false)
-    }, 280)
+    try {
+      const data = await login(username, password)
+      // data = { ok, token, user, mustChangePassword }
+      onLoginSuccess?.(data)
+    } catch (err) {
+      setError(err.message || "Login fail ho gaya")
+      setShake(true)
+      setTimeout(() => setShake(false), 420)
+    }
+    setSubmitting(false)
   }
 
   return (
@@ -189,7 +189,7 @@ export default function LandingPage({ onLoginSuccess }) {
             value={username}
             onChange={e => { setUsername(e.target.value); setError("") }}
             onKeyDown={e => e.key === "Enter" && pwRef.current?.focus()}
-            placeholder="Manas@Bi"
+            placeholder="admin"
             autoFocus
             style={{
               width: "100%", boxSizing: "border-box", padding: "11px 14px", marginBottom: 16,
