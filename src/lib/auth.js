@@ -1,18 +1,37 @@
-// ============================================================
-// AUTH — thin re-export layer over api.js
-// ============================================================
-// This used to hold the hardcoded-credentials + fake-JWT logic.
-// Now that the real backend (Apps Script) handles auth, this file
-// just re-exports the relevant pieces from api.js — so AuthGate.jsx,
-// Dashboard.jsx, and LandingPage.jsx don't need their import paths
-// changed at all.
-//
-// NOTE ON isAuthenticated(): this now only checks "is there a token
-// saved locally", not "is that token cryptographically valid" (we
-// can't verify a server-signed token in the browser). If the token
-// is actually expired/invalid, the first real API call will get a
-// 401 back, api.js will clear the session automatically, and the
-// user gets bounced to the login screen on their next action.
-// ============================================================
+// lib/auth.js — now just a thin wrapper around the backend.
+// Real password checking, hashing, and session signing all happen
+// server-side (Apps Script Auth.gs). This file only manages the
+// token in localStorage and exposes the same function names the
+// rest of the app already expects, so AuthGate/LandingPage barely change.
 
-export { login, logout, isAuthenticated, getUser, getToken, changePassword } from "./api.js"
+import { login as apiLogin, logout as apiLogout, isAuthenticated as apiIsAuthenticated, changePassword as apiChangePassword } from "./api"
+
+export const login = async (username, password) => {
+  try {
+    const data = await apiLogin(username, password) // throws on bad credentials
+    setCurrentUser(data.user)
+    return { ok: true, user: data.user, mustChangePassword: data.mustChangePassword }
+  } catch (err) {
+    return { ok: false, error: err.message || "Username ya password galat hai" }
+  }
+}
+
+export const logout = () => apiLogout()
+
+export const isAuthenticated = () => apiIsAuthenticated()
+
+export const changePassword = async (newPassword) => {
+  try {
+    await apiChangePassword(newPassword)
+    return { ok: true }
+  } catch (err) {
+    return { ok: false, error: err.message }
+  }
+}
+
+// Current user info — stored alongside the token so the UI can show
+// "logged in as X" / branch on role without an extra API call.
+export const getCurrentUser = () => {
+  try { return JSON.parse(localStorage.getItem("nectar_user") || "null") } catch { return null }
+}
+export const setCurrentUser = (user) => localStorage.setItem("nectar_user", JSON.stringify(user))
