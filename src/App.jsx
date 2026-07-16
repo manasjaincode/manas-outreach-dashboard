@@ -4,7 +4,8 @@ import EmailPage from "./EmailPage.jsx";
 import ProposalGenerator from "./ProposalGenerator.jsx";   // 👈 ye add karo
 import AuthGate from "./AuthGate.jsx";   // 👈 ye add karo
 import { logout } from "./lib/auth.js";   // 👈 ye add karo
-
+import AdminPanel from "./AdminPanel.jsx";
+import { getUser } from "./lib/auth.js";
 const COLORS = {
   bg: "#FFFFFF",
   surface: "#FFF7FA",
