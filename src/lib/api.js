@@ -50,10 +50,12 @@ export const createTeamMember = (member) => callBackend("createTeamMember", memb
 export const startLeadScrape = (category, cities, maxResults) =>
   callBackend("startLeadScrape", { category, cities, maxResults });
 export const listLeads = () => callBackend("listLeads");
+export const updateLead = (id, patch) => callBackend("updateLead", { id, patch });
 
 // ---- Startups ----
 export const startStartupSearch = (industry) => callBackend("startStartupSearch", { industry });
 export const listStartups = () => callBackend("listStartups");
+export const updateStartup = (id, patch) => callBackend("updateStartup", { id, patch });
 
 // ---- Freelance ----
 export const getFreelanceJobs = (keyword) => callBackend("getFreelanceJobs", { keyword });
@@ -69,14 +71,18 @@ export const deleteTemplate = (id) => callBackend("deleteTemplate", { id });
 // ---- Recipients ----
 export const listRecipients = () => callBackend("listRecipients");
 export const addRecipients = (recipients) => callBackend("addRecipients", { recipients });
+export const updateRecipient = (payload) => callBackend("updateRecipient", payload); // { id, email, name, company, city, customLine }
 export const deleteRecipient = (id) => callBackend("deleteRecipient", { id });
 
 // ---- Email ----
 export const getSenders = () => callBackend("getSenders");
 export const startEmailSend = (payload) => callBackend("startEmailSend", payload);
-export const getEmailStats = () => callBackend("getEmailStats");
 export const analyzeInboxScore = (subject, body) => callBackend("analyzeInboxScore", { subject, body });
-
+export const listSentLog = () => callBackend("listSentLog");
+export const pauseJob = (jobId) => callBackend("pauseJob", { jobId });
+export const resumeJob = (jobId) => callBackend("resumeJob", { jobId });
+export const getEmailStats = (range = "30d") => callBackend("getEmailStats", { range });
+export const syncEmailEvents = () => callBackend("syncEmailEvents");
 // ---- Analytics ----
 export const getAnalytics = () => callBackend("getAnalytics");
 
@@ -101,3 +107,4 @@ export const pollJob = (jobId, onUpdate, onDone, intervalMs = 4000) => {
   }, intervalMs);
   return () => clearInterval(timer); // caller can cancel if component unmounts
 };
+export const listDriveAttachments = () => callBackend("listDriveAttachments");

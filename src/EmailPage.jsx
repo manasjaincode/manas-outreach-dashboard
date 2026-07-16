@@ -190,7 +190,24 @@ export default function EmailPage({ leads = [] }) {
   const [selectedTemplateIdx, setSelectedTemplateIdx] = useState(0)
   const [subjectOverride, setSubjectOverride] = useState("")
   const [bodyOverride, setBodyOverride] = useState("")
+// ============================================================
+const [driveFiles, setDriveFiles] = useState([])
+const [loadingDriveFiles, setLoadingDriveFiles] = useState(false)
+const [attachmentDropdownOpen, setAttachmentDropdownOpen] = useState(false)
 
+const loadDriveFiles = async () => {
+  setLoadingDriveFiles(true)
+  try { const { files } = await api.listDriveAttachments(); setDriveFiles(files) }
+  catch (err) { showApiError(err) }
+  setLoadingDriveFiles(false)
+}
+useEffect(() => { loadDriveFiles() }, [])
+
+const toggleAttachment = (file) => {
+  setAttachments(prev =>
+    prev.some(a => a.id === file.id) ? prev.filter(a => a.id !== file.id) : [...prev, { id: file.id, name: file.name, url: file.url }]
+  )
+}
   const groupTemplates = (rows) => {
     const grouped = {}
     rows.forEach(r => {
@@ -527,19 +544,7 @@ export default function EmailPage({ leads = [] }) {
     catch (err) { showApiError(err) }
   }
 
-  const handleAttachmentUpload = (e) => {
-    const files = Array.from(e.target.files || [])
-    files.forEach(file => {
-      const reader = new FileReader()
-      reader.onload = (ev) => {
-        const base64 = ev.target.result.split(",")[1]
-        setAttachments(prev => [...prev, { name: file.name, base64 }])
-      }
-      reader.readAsDataURL(file)
-    })
-    e.target.value = ""
-  }
-  const removeAttachment = (idx) => setAttachments(prev => prev.filter((_, i) => i !== idx))
+ 
 
   // ── Job polling ──
   const startPolling = (jobId, total) => {
@@ -1076,14 +1081,23 @@ export default function EmailPage({ leads = [] }) {
                   <input value={ccEmail} onChange={e => setCcEmail(e.target.value)} placeholder="cc@example.com"
                     style={{ width: "100%", background: C.card, border: `1px solid ${C.border2}`, color: C.text, padding: "7px 10px", borderRadius: 6, fontSize: 12, boxSizing: "border-box" }} />
                 </div>
-                <div style={{ flex: 1 }}>
-                  <div style={{ fontSize: 11, color: C.textMuted, marginBottom: 4 }}>Attachments</div>
-                  <input ref={attachmentInputRef} type="file" multiple onChange={handleAttachmentUpload} style={{ display: "none" }} />
-                  <button onClick={() => attachmentInputRef.current?.click()} style={{
-                    width: "100%", background: C.card, border: `1px solid ${C.border2}`, color: C.textMuted,
-                    padding: "7px 10px", borderRadius: 6, fontSize: 12, cursor: "pointer", textAlign: "left",
-                  }}>📎 {attachments.length > 0 ? `${attachments.length} file(s) attached` : "Add attachment"}</button>
-                </div>
+            <div style={{ flex: 1, position: "relative" }}>
+  <div style={{ fontSize: 11, color: C.textMuted, marginBottom: 4 }}>Attachments (PDF, Drive se)</div>
+  <button onClick={() => setAttachmentDropdownOpen(o => !o)} style={{ width: "100%", background: C.card, border: `1px solid ${C.border2}`, color: C.textMuted, padding: "7px 10px", borderRadius: 6, fontSize: 12, cursor: "pointer", textAlign: "left", display: "flex", justifyContent: "space-between" }}>
+    <span>📎 {attachments.length > 0 ? `${attachments.length} selected` : "Select from Drive"}</span>
+    <span>{attachmentDropdownOpen ? "▲" : "▼"}</span>
+  </button>
+  {attachmentDropdownOpen && (
+    <div style={{ position: "absolute", left: 0, right: 0, marginTop: 4, zIndex: 50, background: C.card, border: `1px solid ${C.border2}`, borderRadius: 8, maxHeight: 260, overflowY: "auto" }}>
+      {driveFiles.map(f => (
+        <label key={f.id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 10px", borderBottom: `1px solid ${C.border}`, fontSize: 12 }}>
+          <input type="checkbox" checked={attachments.some(a => a.id === f.id)} onChange={() => toggleAttachment(f)} />
+          <div style={{ flex: 1 }}>{f.name}</div><span style={{ color: C.textDim, fontSize: 10 }}>{f.sizeLabel}</span>
+        </label>
+      ))}
+    </div>
+  )}
+</div>
               </div>
 
               {attachments.length > 0 && (
@@ -1091,7 +1105,7 @@ export default function EmailPage({ leads = [] }) {
                   {attachments.map((a, i) => (
                     <div key={i} style={{ fontSize: 11, background: C.accentDim, color: C.accent, padding: "4px 8px", borderRadius: 5, display: "flex", alignItems: "center", gap: 6 }}>
                       📄 {a.name}
-                      <button onClick={() => removeAttachment(i)} style={{ background: "none", border: "none", color: C.accent, cursor: "pointer", fontSize: 12 }}>✕</button>
+                      <button onClick={() => setAttachments(prev => prev.filter(x => x.id !== a.id))} style={{ background: "none", border: "none", color: C.accent, cursor: "pointer", fontSize: 12 }}>✕</button>
                     </div>
                   ))}
                 </div>
