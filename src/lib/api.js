@@ -46,8 +46,8 @@ export const isAuthenticated = () => !!getToken();
 export const changePassword = (newPassword) => callBackend("changePassword", { newPassword });
 export const createTeamMember = (member) => callBackend("createTeamMember", member);
 export const listUsers = () => callBackend("listUsers");
-export const resetUserPassword = (userId, newPassword) => callBackend("resetUserPassword", { userId, newPassword });
-// ---- Leads ----
+export const resetUserPassword = (userId, newPassword) =>
+  callBackend("resetUserPassword", { userId, newTempPassword: newPassword });// ---- Leads ----
 export const startLeadScrape = (category, cities, maxResults) =>
   callBackend("startLeadScrape", { category, cities, maxResults });
 export const listLeads = () => callBackend("listLeads");
