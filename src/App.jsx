@@ -5,7 +5,7 @@ import ProposalGenerator from "./ProposalGenerator.jsx";   // 👈 ye add karo
 import AuthGate from "./AuthGate.jsx";   // 👈 ye add karo
 import { logout } from "./lib/auth.js";   // 👈 ye add karo
 import AdminPanel from "./AdminPanel.jsx";
-import { getUser } from "./lib/auth.js";
+import { getCurrentUser } from "./lib/auth.js";
 const COLORS = {
   bg: "#FFFFFF",
   surface: "#FFF7FA",
@@ -27,13 +27,14 @@ const COLORS = {
   textSecondary: "#6B7280",
   textMuted: "#AAB2BD",
 };
-
+const currentUser = getCurrentUser();
 const NAV_ITEMS = [
   { id: "overview",  icon: "⬡", label: "Analytics" },
   { id: "leads",     icon: "◈", label: "Lead scraping" },
   { id: "email",     icon: "✉", label: "Email" },
   { id: "proposals", icon: "✎", label: "Proposal Generator" },   // 👈 ye add karo
 
+ ...(currentUser?.role === "admin" ? [{ id: "admin", icon: "⚙", label: "Admin Panel" }] : []),
 ];
 
 const STAT_CARDS = [
@@ -121,7 +122,6 @@ background: isActive ? COLORS.accentDim : hovered === item.id ? COLORS.pinkDim :
               {active === "leads" && "Scrape targeted leads from Google Maps"}
               {active === "email" && "Compose, send and track cold emails via Brevo"}
               {active === "proposals" && "Generate psychology-driven proposals for client job posts"}
-          
             </p>
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
@@ -135,7 +135,7 @@ background: isActive ? COLORS.accentDim : hovered === item.id ? COLORS.pinkDim :
           {active === "leads"     && <LeadsPage />}
 {active === "email"     && <EmailPage leads={[]} />}
 {active === "proposals" && <ProposalGenerator />}
-         
+        {active === "admin" && <AdminPanel />} 
         </div>
       </main>
     </div>  </AuthGate>

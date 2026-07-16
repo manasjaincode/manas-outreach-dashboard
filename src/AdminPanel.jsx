@@ -1,7 +1,6 @@
 import { useState, useEffect } from "react";
 import * as api from "./lib/api.js";
-import { getUser } from "./lib/auth.js";
-
+import { getCurrentUser } from "./lib/auth.js";
 // ============================================================
 // COLORS — matches the rest of the dashboard (Dashboard.jsx / EmailPage.jsx)
 // ============================================================
@@ -39,7 +38,7 @@ function Toast({ toast, onClose }) {
 }
 
 export default function AdminPanel() {
-  const currentUser = getUser()
+const currentUser = getCurrentUser()
   const [toast, setToast] = useState(null)
   const showToast = (message, type = "success") => setToast({ id: Date.now(), message, type })
   const showApiError = (err) => showToast(err?.message || "Kuch galat ho gaya", "error")
