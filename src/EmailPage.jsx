@@ -1360,11 +1360,12 @@ const healthColor = healthScore === null ? C.textMuted : healthScore >= 75 ? C.g
                 ) : (
                   <div style={{ display: "flex", flexDirection: "column", gap: 6, maxHeight: 420, overflowY: "auto" }}>
                     {perRecipientBreakdown.map((r, i) => (
-                      <div key={`${r.email}_${r.batchId}`} style={{
-                        display: "flex", alignItems: "center", gap: 10, padding: "10px 12px", borderRadius: 8,
-                        background: C.surface, border: `1px solid ${r.riskLevel === "critical" ? C.red + "44" : C.border2}`,
-                        animation: `fadeSlideIn 0.3s ease ${Math.min(i * 0.03, 0.6)}s both`,
-                      }}>
+                      <div key={`${r.email}_${r.batchId}`} onClick={() => setSelectedLogEntry(r)} style={{
+  display: "flex", alignItems: "center", gap: 10, padding: "10px 12px", borderRadius: 8, cursor: "pointer",
+  background: selectedLogEntry?.email === r.email && selectedLogEntry?.batchId === r.batchId ? C.accentDim : C.surface,
+  border: `1px solid ${selectedLogEntry?.email === r.email ? C.accent : r.riskLevel === "critical" ? C.red + "44" : C.border2}`,
+  animation: `fadeSlideIn 0.3s ease ${Math.min(i * 0.03, 0.6)}s both`,
+}}>
                         <div style={{
                           width: 9, height: 9, borderRadius: "50%", flexShrink: 0,
                           background: r.riskLevel === "critical" ? C.red : r.riskLevel === "warning" ? C.yellow : r.riskLevel === "pending" ? C.textDim : C.green,
@@ -1391,7 +1392,40 @@ const healthColor = healthScore === null ? C.textMuted : healthScore >= 75 ? C.g
                   </div>
                 )}
               </div>
-
+{selectedLogEntry && (() => {
+                const evs = eventsByEmailBatch[`${selectedLogEntry.email}__${selectedLogEntry.batchId}`]?.events || []
+                const sentMeta = sentLog.find(s => s.batchId === selectedLogEntry.batchId && s.email === selectedLogEntry.email)
+                return (
+                  <div style={{ background: C.card, border: `2px solid ${C.accent}44`, borderRadius: 10, padding: 18, marginBottom: 16 }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 14 }}>
+                      <div>
+                        <div style={{ fontWeight: 700, fontSize: 15 }}>{selectedLogEntry.email}</div>
+                        <div style={{ fontSize: 11, color: C.textMuted, marginTop: 2 }}>
+                          {sentMeta?.company ? `${sentMeta.company} · ` : ""}Sent: {sentMeta?.time ? new Date(sentMeta.time).toLocaleString() : "—"} · via {sentMeta?.sender || "—"}
+                        </div>
+                      </div>
+                      <button onClick={() => setSelectedLogEntry(null)} style={{ background: "none", border: "none", color: C.textMuted, cursor: "pointer", fontSize: 16 }}>✕</button>
+                    </div>
+                    <div style={{ fontSize: 11, color: C.textMuted, marginBottom: 8, textTransform: "uppercase", letterSpacing: 1 }}>Timeline</div>
+                    <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                      {evs.length === 0 ? (
+                        <div style={{ color: C.textDim, fontSize: 12 }}>Koi event nahi mila is mail ke liye.</div>
+                      ) : evs.sort((a, b) => new Date(a.date) - new Date(b.date)).map((ev, i) => (
+                        <div key={i} style={{ display: "flex", alignItems: "center", gap: 10, fontSize: 12, padding: "6px 0", borderBottom: i < evs.length - 1 ? `1px solid ${C.border}` : "none" }}>
+                          <div style={{ width: 8, height: 8, borderRadius: "50%", background: ev.event === "opened" ? C.accent : ev.event === "clicked" ? C.cyan : ev.event === "delivered" ? C.green : ev.event === "spam" ? C.red : C.yellow }} />
+                          <span style={{ textTransform: "capitalize", fontWeight: 500 }}>{ev.event}</span>
+                          <span style={{ color: C.textDim, marginLeft: "auto" }}>{new Date(ev.date).toLocaleString()}</span>
+                        </div>
+                      ))}
+                    </div>
+                    <a href={`https://mail.google.com/mail/u/0/#search/from%3A${encodeURIComponent(selectedLogEntry.email)}+OR+to%3A${encodeURIComponent(selectedLogEntry.email)}`}
+                      target="_blank" rel="noopener noreferrer"
+                      style={{ display: "inline-block", marginTop: 14, fontSize: 12, color: C.accent, border: `1px solid ${C.accent}44`, padding: "6px 14px", borderRadius: 6, textDecoration: "none" }}>
+                      📬 Open in Gmail
+                    </a>
+                  </div>
+                )
+              })()}
               <div style={{ background: "#00000005", border: `1px solid ${C.border2}`, borderRadius: 10, padding: 16, fontSize: 12, color: C.textMuted, lineHeight: 1.8 }}>
                 <div style={{ fontWeight: 700, color: C.text, marginBottom: 6 }}>ℹ️ About spam tracking</div>
                 <b style={{ color: C.text }}>What Brevo tracks:</b> When someone actively clicks "Report Spam" in Gmail/Outlook (via feedback loop). Also tracks hard bounces (email doesn't exist) and soft bounces (inbox full).<br />
