@@ -6,7 +6,6 @@ import AuthGate from "./AuthGate.jsx";   // 👈 ye add karo
 import { logout } from "./lib/auth.js";   // 👈 ye add karo
 import AdminPanel from "./AdminPanel.jsx";
 import { getCurrentUser } from "./lib/auth.js";
-import logo from "./assets/braininventory_logo.jpg"; // adjust relative path to your component
 
 const COLORS = {
   bg: "#FFFFFF",

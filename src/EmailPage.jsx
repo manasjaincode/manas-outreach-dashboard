@@ -298,7 +298,7 @@ const toggleAttachment = (file) => {
   const [trackingFilter, setTrackingFilter] = useState("all")
 
   const [previewRecipient, setPreviewRecipient] = useState(null)
-
+const [hoveredSender, setHoveredSender] = useState(null)
   // ── AI Analysis (via backend Groq) ──
   const [aiAnalysis, setAiAnalysis] = useState(null)
   const [analyzingAi, setAnalyzingAi] = useState(false)
@@ -332,7 +332,7 @@ const toggleAttachment = (file) => {
   const [tmEditingVariant, setTmEditingVariant] = useState(null)
   const [tmVariantSubject, setTmVariantSubject] = useState("")
   const [tmVariantBody, setTmVariantBody] = useState("")
-
+const [selectedLogEntry, setSelectedLogEntry] = useState(null)
   const tmAddIndustry = () => {
     const name = tmIndustryInput.trim()
     if (!name || templateLibrary[name]) return
@@ -647,12 +647,15 @@ const toggleAttachment = (file) => {
   const bounceRate = sent > 0 ? (bounced / sent) * 100 : 0
   const spamRate = delivered > 0 ? (spam / delivered) * 100 : 0
 
-  let healthScore = 100
+let healthScore = null
+if (delivered > 0) {
+  healthScore = 100
   if (openRate < 5) healthScore -= 30; else if (openRate < 15) healthScore -= 15; else if (openRate < 20) healthScore -= 5
   if (bounceRate > 5) healthScore -= 30; else if (bounceRate > 2) healthScore -= 15; else if (bounceRate > 1) healthScore -= 5
   if (spamRate > 0.5) healthScore -= 35; else if (spamRate > 0.1) healthScore -= 20; else if (spamRate > 0.05) healthScore -= 10
   healthScore = Math.max(0, Math.min(100, healthScore))
-  const healthColor = healthScore >= 75 ? C.green : healthScore >= 50 ? C.yellow : C.red
+}
+const healthColor = healthScore === null ? C.textMuted : healthScore >= 75 ? C.green : healthScore >= 50 ? C.yellow : C.red
 
   const warnings = []
   if (spam > 0) warnings.push({ level: "red", msg: `🚨 ${spam} spam report${spam > 1 ? "s" : ""} — ${spamRate.toFixed(3)}% spam rate. Gmail threshold is 0.1%. Pause and review immediately.` })
@@ -1246,15 +1249,13 @@ const toggleAttachment = (file) => {
             <>
               <div style={{ background: C.card, border: `2px solid ${healthColor}44`, borderRadius: 12, padding: 20, marginBottom: 16, display: "flex", gap: 24, alignItems: "center", animation: "fadeSlideIn 0.4s ease both" }}>
                 <div style={{ textAlign: "center", minWidth: 80 }}>
-                  <div style={{ fontSize: 52, fontWeight: 900, color: healthColor, lineHeight: 1 }}>{healthScore}</div>
-                  <div style={{ fontSize: 11, color: healthColor, fontWeight: 700, marginTop: 4 }}>{healthScore >= 75 ? "HEALTHY" : healthScore >= 50 ? "AT RISK" : "POOR"}</div>
-                  <div style={{ fontSize: 10, color: C.textMuted }}>Inbox Health</div>
+                  <div style={{ fontSize: 52, fontWeight: 900, color: healthColor, lineHeight: 1 }}>{healthScore === null ? "—" : healthScore}</div>
+<div style={{ fontSize: 11, color: healthColor, fontWeight: 700, marginTop: 4 }}>{healthScore === null ? "NO DATA YET" : healthScore >= 75 ? "HEALTHY" : healthScore >= 50 ? "AT RISK" : "POOR"}</div>                  <div style={{ fontSize: 10, color: C.textMuted }}>Inbox Health</div>
                   <div style={{ fontSize: 9, color: C.textDim, marginTop: 2 }}>(combined across all senders)</div>
                 </div>
                 <div style={{ flex: 1 }}>
                   <div style={{ background: C.border, borderRadius: 6, height: 8, marginBottom: 10, overflow: "hidden" }}>
-                    <div style={{ background: healthColor, width: `${healthScore}%`, height: "100%", borderRadius: 6, transition: "width 0.8s ease" }} />
-                  </div>
+<div style={{ background: healthColor, width: `${healthScore || 0}%`, height: "100%", borderRadius: 6, transition: "width 0.8s ease" }} />                  </div>
                   {warnings.map((w, i) => (
                     <div key={i} style={{
                       fontSize: 12, padding: "7px 12px", borderRadius: 7, marginBottom: 6,
@@ -1295,16 +1296,17 @@ const toggleAttachment = (file) => {
                           const offset = -cumulative
                           cumulative += dash
                           return (
-                            <circle key={s.id} cx={cx} cy={cy} r={r} fill="none" stroke={s.color} strokeWidth="18"
-                              strokeDasharray={`${dash} ${circumference - dash}`} strokeDashoffset={offset}
-                              style={{ transition: "stroke-dasharray 0.6s ease" }} />
+                           <circle key={s.id} cx={cx} cy={cy} r={r} fill="none" stroke={s.color} strokeWidth="18"
+  strokeDasharray={`${dash} ${circumference - dash}`} strokeDashoffset={offset}
+  onMouseEnter={() => setHoveredSender(s)} onMouseLeave={() => setHoveredSender(null)}
+  style={{ cursor: "pointer", transition: "stroke-dasharray 0.6s ease" }} />
                           )
                         })
                       })()}
                     </svg>
                   )}
-                  <div style={{ marginTop: -95, fontSize: 20, fontWeight: 800, pointerEvents: "none" }}>{totalSentAll}</div>
-                  <div style={{ marginTop: 65, fontSize: 10, color: C.textDim, pointerEvents: "none" }}>total sent</div>
+                 <div style={{ marginTop: -95, fontSize: 20, fontWeight: 800, pointerEvents: "none" }}>{hoveredSender ? hoveredSender.totalSent : totalSentAll}</div>
+<div style={{ marginTop: 65, fontSize: 10, color: C.textDim, pointerEvents: "none", maxWidth: 100, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{hoveredSender ? hoveredSender.email : "total sent"}</div>
                 </div>
 
                 <div style={{ flex: 1, minWidth: 260, display: "flex", flexDirection: "column", gap: 8 }}>
