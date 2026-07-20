@@ -111,7 +111,8 @@ export const resetUserPassword = (userId, newTempPassword) => call("resetUserPas
 // Returns { ok, jobId } — backend queues this, processQueue trigger runs it
 // chunk-by-chunk. Poll with getJob(jobId) for progress.
 export const startLeadScrape = (payload) => call("startLeadScrape", payload)
-
+export const startLeadScrapeRadius = (pincode, radiusKm, category, maxResults) =>
+  call("startLeadScrapeRadius", { pincode, radiusKm, category, maxResults })
 export const listLeads = () => call("listLeads")
 
 // ============================================================

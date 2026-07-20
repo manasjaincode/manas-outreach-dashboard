@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect, useContext, createContext, useCallback } from "react";
 import { searchPlacesMulti, getPlaceDetails, enrichLead } from "./config.js";
 import EmailPage from "./EmailPage.jsx";
 import ProposalGenerator from "./ProposalGenerator.jsx";   // 👈 ye add karo
@@ -6,7 +6,17 @@ import AuthGate from "./AuthGate.jsx";   // 👈 ye add karo
 import { logout } from "./lib/auth.js";   // 👈 ye add karo
 import AdminPanel from "./AdminPanel.jsx";
 import { getCurrentUser } from "./lib/auth.js";
+import { startLeadScrapeRadius, pollJob, listLeads } from "./lib/api.js"; // top pe add karo
+import { MapContainer, TileLayer, Marker, Popup } from "react-leaflet";
+import "leaflet/dist/leaflet.css";
+import L from "leaflet";
 
+delete L.Icon.Default.prototype._getIconUrl;
+L.Icon.Default.mergeOptions({
+  iconRetinaUrl: "https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon-2x.png",
+  iconUrl: "https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png",
+  shadowUrl: "https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png",
+});
 const COLORS = {
   bg: "#FFFFFF",
   surface: "#FFF7FA",
@@ -32,6 +42,7 @@ const currentUser = getCurrentUser();
 const NAV_ITEMS = [
   { id: "overview",  icon: "⬡", label: "Analytics" },
   { id: "leads",     icon: "◈", label: "Lead scraping" },
+  { id: "totalLeads", icon: "📋", label: "Total Leads" },
   { id: "email",     icon: "✉", label: "Email" },
   { id: "proposals", icon: "✎", label: "Proposal Generator" },   // 👈 ye add karo
 
@@ -122,6 +133,7 @@ background: isActive ? COLORS.accentDim : hovered === item.id ? COLORS.pinkDim :
               {active === "overview" && "Real-time performance across your outreach campaigns"}
               {active === "leads" && "Scrape targeted leads from Google Maps"}
               {active === "email" && "Compose, send and track cold emails via Brevo"}
+                            {active === "totalLeads" && "Poori lead history — sab search se aaye leads ek jagah"}
               {active === "proposals" && "Generate psychology-driven proposals for client job posts"}
             </p>
           </div>
@@ -134,6 +146,8 @@ background: isActive ? COLORS.accentDim : hovered === item.id ? COLORS.pinkDim :
         <div style={{ flex: 1, padding: "28px 32px" }}>
           {active === "overview"  && <OverviewPage setActive={setActive} />}
           {active === "leads"     && <LeadsPage />}
+          {active === "totalLeads" && <TotalLeadsPage />}
+
 {active === "email"     && <EmailPage leads={[]} />}
 {active === "proposals" && <ProposalGenerator />}
         {active === "admin" && <AdminPanel />} 
@@ -311,7 +325,11 @@ function LeadsPage() {
   const [leads, setLeads] = useState([]);
   const [status, setStatus] = useState(null);
   const [filter, setFilter] = useState("");
-
+// existing useState() ke saath add karo:
+const [mode, setMode] = useState("city"); // "city" | "radius"
+const [pincode, setPincode] = useState("");
+const [radiusKm, setRadiusKm] = useState(4);
+const [jobStatus, setJobStatus] = useState(null);
   const addKw = (e) => {
     if ((e.key === "Enter" || e.key === ",") && kwInput.trim()) {
       e.preventDefault();
@@ -381,7 +399,53 @@ function LeadsPage() {
     }
     setStatus(null);
   };
+  const [elapsedSec, setElapsedSec] = useState(0);
 
+const startRadiusScrape = async () => {
+  if (!category || !pincode) return alert("Category aur pincode daalo");
+  setLeads([]);
+  setJobStatus("Starting...");
+  setElapsedSec(0);
+  const timer = setInterval(() => setElapsedSec(s => s + 1), 1000);
+
+  const { jobId } = await startLeadScrapeRadius(pincode, radiusKm, category, parseInt(maxResults) || 20);
+
+  pollJob(
+    jobId,
+    (job) => {
+      let progressText = job.status;
+      try {
+        const p = JSON.parse(job.progress || "{}");
+        if (p.phase === "searching") progressText = `Searching area ${p.gridIndex ?? 0}/${(p.gridPoints||[]).length || 1}...`;
+        else if (p.phase === "enriching") progressText = `Enriching ${p.enrichIndex ?? 0}/${(p.queue||[]).length ?? 0} leads...`;
+      } catch {}
+      setJobStatus(progressText);
+    },
+    async (job) => {
+      clearInterval(timer);
+      if (job.status === "error") {
+        alert(`Error: ${job.resultSummary || "job failed"}`);
+      } else {
+        const safeParseArray = (str) => {
+      try { const p = JSON.parse(str); return Array.isArray(p) ? p : []; } catch { return []; }
+    };
+      const { leads: allLeads } = await listLeads();
+        const radiusLeads = allLeads
+  .filter(l => l.searchJobId === jobId)
+  .map(l => ({
+    ...l,
+    points: typeof l.points === "string" ? l.points.split(" | ").filter(Boolean) : (l.points || []),
+    people: typeof l.people === "string" ? safeParseArray(l.people) : (l.people || []),
+    allEmails: typeof l.allEmails === "string" ? l.allEmails.split("; ").filter(Boolean) : (l.allEmails || []),
+    keywords_found: l.keywords_found || [],
+  }));
+setLeads(radiusLeads);
+      }
+      setJobStatus(null);
+    },
+    3000
+  );
+};
   const maxPeopleCount = Math.max(1, ...leads.map(l => (l.people || []).length));
 
   const exportCSV = () => {
@@ -418,10 +482,45 @@ function LeadsPage() {
   return (
     <div>
       <div style={{ background:COLORS.card,border:`1px solid ${COLORS.border}`,borderRadius:12,padding:"22px 24px",marginBottom:20 }}>
-        <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr",gap:16,marginBottom:16 }}>
-          <div><label style={lS}>Industry / Category</label><input style={iS} value={category} onChange={e=>setCategory(e.target.value)} placeholder="e.g. interior designers, CA firms, gyms" /></div>
-          <div><label style={lS}>Cities (comma separated)</label><input style={iS} value={cities} onChange={e=>setCities(e.target.value)} placeholder="e.g. Indore, Bhopal, Pune" /></div>
+               {/* 👇 YAHAN — toggle daalo, card ke andar sabse pehli cheez */}
+        <div style={{ display: "flex", gap: 8, marginBottom: 16 }}>
+          {["city", "radius"].map(m => (
+            <button key={m} onClick={() => setMode(m)}
+              style={{
+                padding: "7px 16px", borderRadius: 8, border: `1px solid ${mode===m?COLORS.accent:COLORS.border}`,
+                background: mode===m ? COLORS.accentDim : "transparent",
+                color: mode===m ? COLORS.accent : COLORS.textSecondary,
+                fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: "inherit",
+              }}>
+              {m === "city" ? "🏙 City search" : "📍 Pincode + Radius"}
+            </button>
+          ))}
         </div>
+   {mode === "city" && (
+          <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr",gap:16,marginBottom:16 }}>
+            <div><label style={lS}>Industry / Category</label><input style={iS} value={category} onChange={e=>setCategory(e.target.value)} placeholder="e.g. interior designers, CA firms, gyms" /></div>
+            <div><label style={lS}>Cities (comma separated)</label><input style={iS} value={cities} onChange={e=>setCities(e.target.value)} placeholder="e.g. Indore, Bhopal, Pune" /></div>
+          </div>
+        )}
+
+       {mode === "radius" && (
+  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 16, marginBottom: 16 }}>
+    <div>
+      <label style={lS}>Industry / Category</label>
+      <input style={iS} value={category} onChange={e=>setCategory(e.target.value)} placeholder="e.g. interior designers, CA firms, gyms" />
+    </div>
+    <div>
+      <label style={lS}>Pincode</label>
+      <input style={iS} value={pincode} onChange={e => setPincode(e.target.value)} placeholder="e.g. 452001" maxLength={6} />
+    </div>
+    <div>
+      <label style={lS}>Radius (km)</label>
+      <select style={iS} value={radiusKm} onChange={e => setRadiusKm(Number(e.target.value))}>
+        {[2,4,6,8,10].map(r => <option key={r} value={r}>{r} km</option>)}
+      </select>
+    </div>
+  </div>
+)}
         <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr",gap:16,marginBottom:16 }}>
           <div>
             <label style={lS}>Keywords to match on website</label>
@@ -443,16 +542,34 @@ function LeadsPage() {
             <input type="number" min="1" max="500" value={maxResults} onChange={e=>setMaxResults(Math.max(1,parseInt(e.target.value)||1))} style={{ ...iS,width:90,padding:"8px 10px",textAlign:"center" }} />
             {maxResults > 60 && <span style={{ fontSize:11,color:COLORS.amber }}>⚡ 60+ mode — multiple area searches chalenge</span>}
           </div>
-          <button onClick={startScrape} disabled={!!status} style={{ padding:"9px 22px",background:COLORS.accent,border:"none",borderRadius:8,color:"#fff",fontSize:13,fontWeight:600,cursor:status?"not-allowed":"pointer",fontFamily:"inherit",opacity:status?0.7:1 }}>
-            {status?"◈ Running...":"◈ Start scraping"}
-          </button>
+       <button onClick={mode === "city" ? startScrape : startRadiusScrape} disabled={!!status || !!jobStatus} style={{ padding:"9px 22px",background:COLORS.accent,border:"none",borderRadius:8,color:"#fff",fontSize:13,fontWeight:600,cursor:(status||jobStatus)?"not-allowed":"pointer",fontFamily:"inherit",opacity:(status||jobStatus)?0.7:1 }}>
+  {(status||jobStatus) ? "◈ Running..." : "◈ Start scraping"}
+</button>
           {leads.length > 0 && <>
             <button onClick={exportCSV} style={{ padding:"9px 16px",background:"transparent",border:`1px solid ${COLORS.border}`,borderRadius:8,color:COLORS.textSecondary,fontSize:13,cursor:"pointer",fontFamily:"inherit" }}>Export CSV</button>
             <button onClick={copyForSheets} style={{ padding:"9px 16px",background:"transparent",border:`1px solid ${COLORS.border}`,borderRadius:8,color:COLORS.textSecondary,fontSize:13,cursor:"pointer",fontFamily:"inherit" }}>Copy for Sheets</button>
           </>}
         </div>
         {status && <div style={{ marginTop:12,fontSize:12,color:COLORS.amber,display:"flex",alignItems:"center",gap:8 }}><span style={{ width:6,height:6,borderRadius:"50%",background:COLORS.amber,display:"inline-block" }}/>{status}</div>}
-      </div>
+{jobStatus && (
+  <div style={{ marginTop:12,fontSize:12,color:COLORS.amber,display:"flex",alignItems:"center",gap:8 }}>
+    <span style={{ width:6,height:6,borderRadius:"50%",background:COLORS.amber,display:"inline-block" }}/>
+    {jobStatus} — {Math.floor(elapsedSec/60)}m {elapsedSec%60}s elapsed
+  </div>
+)}      </div>
+  {/* 👇 YAHAN paste karo */}
+      {mode === "radius" && leads.length > 0 && (
+        <div style={{ height: 400, borderRadius: 12, overflow: "hidden", marginBottom: 20, border: `1px solid ${COLORS.border}` }}>
+<MapContainer center={[leads.find(l=>l.lat)?.lat || 22.7196, leads.find(l=>l.lng)?.lng || 75.8577]} zoom={13} style={{ height: "100%", width: "100%" }}>            <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" attribution="&copy; OpenStreetMap" />
+            {leads.map((l, i) => l.lat && l.lng ? (
+              <Marker key={i} position={[l.lat, l.lng]}>
+                <Popup><b>{l.name}</b><br/>{l.address}<br/>{l.phone}</Popup>
+              </Marker>
+            ) : null)}
+          </MapContainer>
+        </div>
+      )}
+      {/* 👆 yahan tak */}
 
       {leads.length > 0 && (
         <div style={{ display:"grid",gridTemplateColumns:"repeat(4, 1fr)",gap:12,marginBottom:20 }}>
@@ -542,6 +659,137 @@ function LeadsPage() {
           <div style={{ fontSize:40,marginBottom:12 }}>◈</div>
           <p style={{ fontSize:14,color:COLORS.textSecondary }}>Category, cities daalo aur scraping shuru karo</p>
           <p style={{ fontSize:12,marginTop:6 }}>Har cell editable hai — click karke directly type kar sakte ho</p>
+        </div>
+      )}
+    </div>
+  );
+}
+// ==================== TOTAL LEADS PAGE (poori history, unfiltered) ====================
+
+function TotalLeadsPage() {
+  const [allLeads, setAllLeads] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [filter, setFilter] = useState("");
+  const [error, setError] = useState(null);
+
+  useEffect(() => {
+    const safeParseArray = (str) => {
+      try { const p = JSON.parse(str); return Array.isArray(p) ? p : []; } catch { return []; }
+    };
+    (async () => {
+      try {
+        setLoading(true);
+        const { leads } = await listLeads();
+        const normalized = (leads || []).map(l => ({
+          ...l,
+          allEmails: typeof l.allEmails === "string" ? l.allEmails.split("; ").filter(Boolean) : (l.allEmails || []),
+        }));
+        setAllLeads(normalized);
+      } catch (err) {
+        setError(err.message || "Leads load nahi ho paaye");
+      } finally {
+        setLoading(false);
+      }
+    })();
+  }, []);
+
+  const iS = { width:"100%",padding:"9px 12px",background:COLORS.card,border:`1px solid ${COLORS.border}`,borderRadius:8,color:COLORS.text,fontSize:13,fontFamily:"inherit",outline:"none" };
+  const thS = { padding:"9px 14px",textAlign:"left",fontSize:10,color:COLORS.textMuted,fontWeight:500,letterSpacing:"0.08em",textTransform:"uppercase",borderBottom:`1px solid ${COLORS.border}`,whiteSpace:"nowrap",position:"sticky",top:0,background:COLORS.surface,zIndex:1 };
+  const tdS = { padding:"10px 14px",borderRight:`1px solid ${COLORS.border}`,verticalAlign:"top" };
+const highlight = (text) => {
+    const q = filter.trim();
+    const str = String(text ?? "");
+    if (q.length < 2) return str;
+    const idx = str.toLowerCase().indexOf(q.toLowerCase());
+    if (idx === -1) return str;
+    return (
+      <>
+        {str.slice(0, idx)}
+        <mark style={{ background: COLORS.amber + "55", color: COLORS.text, padding: "0 1px", borderRadius: 2 }}>
+          {str.slice(idx, idx + q.length)}
+        </mark>
+        {str.slice(idx + q.length)}
+      </>
+    );
+  };
+
+  const filtered = allLeads.filter(l => {
+    const q = filter.toLowerCase();
+    if (!q) return true;
+    return String(l.name||"").toLowerCase().includes(q)
+      || String(l.city||"").toLowerCase().includes(q)
+      || String(l.category||"").toLowerCase().includes(q)
+      || String(l.email||"").toLowerCase().includes(q);
+  });
+
+  if (loading) {
+    return <div style={{ textAlign:"center",padding:"60px 20px",color:COLORS.textMuted }}>Loading poori lead history...</div>;
+  }
+  if (error) {
+    return <div style={{ textAlign:"center",padding:"60px 20px",color:COLORS.red }}>Error: {error}</div>;
+  }
+
+  return (
+    <div>
+      {allLeads.length > 0 && (
+        <div style={{ display:"grid",gridTemplateColumns:"repeat(4, 1fr)",gap:12,marginBottom:20 }}>
+          {[
+            { label:"Total leads (all time)", value: allLeads.length, color: COLORS.accent },
+            { label:"With email", value: allLeads.filter(l=>l.email).length, color: COLORS.green },
+            { label:"With phone", value: allLeads.filter(l=>l.phone).length, color: COLORS.amber },
+            { label:"Unique search jobs", value: new Set(allLeads.map(l=>l.searchJobId).filter(Boolean)).size, color: COLORS.red },
+          ].map((s,i)=>(
+            <div key={i} style={{ background:COLORS.card,border:`1px solid ${COLORS.border}`,borderRadius:10,padding:"14px 18px" }}>
+              <div style={{ fontSize:24,fontWeight:600,color:s.color }}>{s.value}</div>
+              <div style={{ fontSize:11,color:COLORS.textMuted,marginTop:4 }}>{s.label}</div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      <div style={{ background:COLORS.card,border:`1px solid ${COLORS.border}`,borderRadius:12,overflow:"hidden" }}>
+        <div style={{ padding:"12px 16px",borderBottom:`1px solid ${COLORS.border}`,display:"flex",alignItems:"center",justifyContent:"space-between" }}>
+          <input style={{ ...iS,width:260,padding:"7px 12px" }} value={filter} onChange={e=>setFilter(e.target.value)} placeholder="Naam, city, category ya email se search karo..." />
+          <span style={{ fontSize:12,color:COLORS.textMuted }}>{filtered.length} / {allLeads.length} leads</span>
+        </div>
+        <div style={{ overflowX:"auto",overflowY:"auto",maxHeight:"70vh" }}>
+          <table style={{ borderCollapse:"collapse",fontSize:12,tableLayout:"fixed",width:"100%" }}>
+            <thead>
+              <tr>
+                <th style={{ ...thS,minWidth:160 }}>Business</th>
+                <th style={{ ...thS,minWidth:120 }}>Category</th>
+                <th style={{ ...thS,minWidth:100 }}>City / Pincode</th>
+                <th style={{ ...thS,minWidth:170 }}>Best email</th>
+                <th style={{ ...thS,minWidth:120 }}>Phone</th>
+                <th style={{ ...thS,minWidth:90 }}>Website</th>
+                <th style={{ ...thS,minWidth:70 }}>Rating</th>
+                <th style={{ ...thS,minWidth:140 }}>Search Job ID</th>
+                <th style={{ ...thS,minWidth:140 }}>Created At</th>
+              </tr>
+            </thead>
+            <tbody>
+              {filtered.map((l, i) => (
+                <tr key={l.id || i} style={{ borderBottom:`1px solid ${COLORS.border}` }}>
+             <td style={tdS}>{highlight(l.name)}</td>
+                  <td style={tdS}>{highlight(l.category)}</td>
+                  <td style={tdS}>{highlight(l.city)}</td>
+                  <td style={{ ...tdS, color: l.email ? COLORS.green : COLORS.textMuted }}>{l.email ? highlight(l.email) : "—"}</td>
+                  <td style={tdS}>{l.phone || "—"}</td>
+                  <td style={tdS}>{l.website ? <a href={l.website} target="_blank" rel="noreferrer" style={{ color:COLORS.accent,textDecoration:"none" }}>Open ↗</a> : "—"}</td>
+                  <td style={tdS}>{l.rating || "—"}</td>
+                  <td style={{ ...tdS, fontSize:10, color:COLORS.textMuted }}>{l.searchJobId || "—"}</td>
+                  <td style={{ ...tdS, fontSize:10, color:COLORS.textMuted }}>{l.createdAt || "—"}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      {allLeads.length === 0 && (
+        <div style={{ textAlign:"center",padding:"60px 20px",color:COLORS.textMuted }}>
+          <div style={{ fontSize:40,marginBottom:12 }}>📋</div>
+          <p style={{ fontSize:14,color:COLORS.textSecondary }}>Abhi tak koi lead scrape nahi hua</p>
         </div>
       )}
     </div>

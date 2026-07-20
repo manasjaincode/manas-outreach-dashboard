@@ -50,6 +50,8 @@ export const resetUserPassword = (userId, newPassword) =>
   callBackend("resetUserPassword", { userId, newTempPassword: newPassword });// ---- Leads ----
 export const startLeadScrape = (category, cities, maxResults) =>
   callBackend("startLeadScrape", { category, cities, maxResults });
+export const startLeadScrapeRadius = (pincode, radiusKm, category, maxResults) =>
+  callBackend("startLeadScrapeRadius", { pincode, radiusKm, category, maxResults });
 export const listLeads = () => callBackend("listLeads");
 export const updateLead = (id, patch) => callBackend("updateLead", { id, patch });
 
