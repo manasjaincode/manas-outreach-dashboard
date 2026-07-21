@@ -7,12 +7,95 @@
 //   VITE_BACKEND_URL=https://script.google.com/macros/s/XXXXX/exec
 // (you get this URL after deploying the Apps Script as a Web App)
 // ============================================================
+//
+// ── REQUEST QUEUE + RETRY ──────────────────────────────────
+// Apps Script Web Apps only reliably handle ONE request at a time per
+// user. When several calls fire at once (multiple useEffects loading
+// data, or a user clicking fast / bulk-deleting), some of them fail —
+// and because Apps Script's error response often arrives without CORS
+// headers, the browser reports this as a misleading "CORS policy"
+// error even though the real cause is just too many simultaneous hits.
+//
+// Fix: every single callBackend() goes through one shared queue that
+// runs requests strictly one-after-another, and any transient
+// (network/CORS-looking) failure gets retried automatically with a
+// short backoff. Genuine backend errors (wrong password, bad input,
+// etc.) are NOT retried — they'll just fail the same way again.
 
 const BACKEND_URL = import.meta.env.VITE_BACKEND_URL;
 
 const getToken = () => localStorage.getItem("nectar_token");
 const setToken = (t) => localStorage.setItem("nectar_token", t);
 const clearToken = () => localStorage.removeItem("nectar_token");
+
+// ---------------- queue + retry machinery ----------------
+
+let requestQueue = [];
+let queueRunning = false;
+
+function enqueue(task) {
+  return new Promise((resolve, reject) => {
+    requestQueue.push({ task, resolve, reject });
+    runQueue();
+  });
+}
+
+async function runQueue() {
+  if (queueRunning) return;
+  queueRunning = true;
+  while (requestQueue.length) {
+    const { task, resolve, reject } = requestQueue.shift();
+    try {
+      resolve(await task());
+    } catch (err) {
+      reject(err);
+    }
+  }
+  queueRunning = false;
+}
+
+async function withRetry(task, attempts = 3) {
+  let lastErr;
+  for (let i = 0; i < attempts; i++) {
+    try {
+      return await task();
+    } catch (err) {
+      lastErr = err;
+      if (!err.transient || i === attempts - 1) throw err;
+      await new Promise((r) => setTimeout(r, 500 * (i + 1))); // 500ms, 1000ms backoff
+    }
+  }
+  throw lastErr;
+}
+
+// Does the actual fetch + JSON parse. Marks failures as "transient" so
+// withRetry knows they're worth retrying (as opposed to a valid backend
+// response that just happens to say ok:false).
+async function rawCallBackend(action, payload) {
+  let res;
+  try {
+    res = await fetch(BACKEND_URL, {
+      method: "POST",
+      headers: { "Content-Type": "text/plain;charset=utf-8" },
+      body: JSON.stringify({ action, token: getToken(), payload }),
+    });
+  } catch (networkErr) {
+    const err = new Error(`Backend se connect nahi ho paya: ${networkErr.message}`);
+    err.transient = true;
+    throw err;
+  }
+
+  let data;
+  try {
+    data = await res.json();
+  } catch {
+    const err = new Error("Backend se invalid response mila (JSON parse fail)");
+    err.transient = true;
+    throw err;
+  }
+
+  return data;
+}
 
 /**
  * Every call goes through here. Content-Type is deliberately
@@ -22,12 +105,7 @@ const clearToken = () => localStorage.removeItem("nectar_token");
  * we still send well-formed JSON as the body string.
  */
 async function callBackend(action, payload = {}) {
-  const res = await fetch(BACKEND_URL, {
-    method: "POST",
-    headers: { "Content-Type": "text/plain;charset=utf-8" },
-    body: JSON.stringify({ action, token: getToken(), payload }),
-  });
-  const data = await res.json();
+  const data = await enqueue(() => withRetry(() => rawCallBackend(action, payload)));
   if (!data.ok) {
     if (data.code === 401) clearToken(); // session expired — force re-login
     throw new Error(data.error || "Request failed");
@@ -76,6 +154,7 @@ export const listRecipients = () => callBackend("listRecipients");
 export const addRecipients = (recipients) => callBackend("addRecipients", { recipients });
 export const updateRecipient = (payload) => callBackend("updateRecipient", payload); // { id, email, name, company, city, customLine }
 export const deleteRecipient = (id) => callBackend("deleteRecipient", { id });
+export const deleteRecipientsBatch = (ids) => callBackend("deleteRecipientsBatch", { ids });
 
 // ---- Email ----
 export const getSenders = () => callBackend("getSenders");

@@ -9,6 +9,20 @@
 //
 // Every backend action lives in Code.gs's doPost() switch statement.
 // If a new action is added there, add a matching wrapper here.
+//
+// ── REQUEST QUEUE + RETRY ──────────────────────────────────
+// Apps Script Web Apps only reliably handle ONE request at a time per
+// user. When several calls fire at once (multiple useEffects loading
+// data, or a user clicking fast), some of them fail — and because Apps
+// Script's error response often arrives without CORS headers, the
+// browser reports this as a misleading "CORS policy" error even though
+// the real cause is just too many simultaneous hits.
+//
+// Fix: every single call() goes through one shared queue that runs
+// requests strictly one-after-another, and any transient (network/CORS-
+// looking) failure gets retried automatically with a short backoff.
+// Genuine backend errors (wrong password, bad input, etc.) are NOT
+// retried — they'll just fail the same way again.
 
 const API_URL = import.meta.env.VITE_BACKEND_URL
 
@@ -35,6 +49,75 @@ export const clearSession = () => {
 
 export const isAuthenticated = () => !!getToken()
 
+// ---------------- queue + retry machinery ----------------
+
+let requestQueue = []
+let queueRunning = false
+
+function enqueue(task) {
+  return new Promise((resolve, reject) => {
+    requestQueue.push({ task, resolve, reject })
+    runQueue()
+  })
+}
+
+async function runQueue() {
+  if (queueRunning) return
+  queueRunning = true
+  while (requestQueue.length) {
+    const { task, resolve, reject } = requestQueue.shift()
+    try {
+      resolve(await task())
+    } catch (err) {
+      reject(err)
+    }
+  }
+  queueRunning = false
+}
+
+async function withRetry(task, attempts = 3) {
+  let lastErr
+  for (let i = 0; i < attempts; i++) {
+    try {
+      return await task()
+    } catch (err) {
+      lastErr = err
+      if (!err.transient || i === attempts - 1) throw err
+      await new Promise(r => setTimeout(r, 500 * (i + 1))) // 500ms, 1000ms backoff
+    }
+  }
+  throw lastErr
+}
+
+// Does the actual fetch + JSON parse. Marks failures as "transient" so
+// withRetry knows they're worth retrying (as opposed to a valid backend
+// response that just happens to say ok:false).
+async function rawCall(action, payload, token) {
+  let res
+  try {
+    res = await fetch(API_URL, {
+      method: "POST",
+      headers: { "Content-Type": "text/plain;charset=utf-8" },
+      body: JSON.stringify({ action, token, payload }),
+    })
+  } catch (networkErr) {
+    const err = new Error(`Backend se connect nahi ho paya: ${networkErr.message}`)
+    err.transient = true
+    throw err
+  }
+
+  let data
+  try {
+    data = await res.json()
+  } catch {
+    const err = new Error("Backend se invalid response mila (JSON parse fail)")
+    err.transient = true
+    throw err
+  }
+
+  return data
+}
+
 // ---------------- core request fn ----------------
 //
 // IMPORTANT: Content-Type must stay "text/plain" — Apps Script Web Apps
@@ -49,23 +132,7 @@ async function call(action, payload = {}, { withAuth = true } = {}) {
 
   const token = withAuth ? getToken() : null
 
-  let res
-  try {
-    res = await fetch(API_URL, {
-      method: "POST",
-      headers: { "Content-Type": "text/plain;charset=utf-8" },
-      body: JSON.stringify({ action, token, payload }),
-    })
-  } catch (networkErr) {
-    throw new Error(`Backend se connect nahi ho paya: ${networkErr.message}`)
-  }
-
-  let data
-  try {
-    data = await res.json()
-  } catch {
-    throw new Error("Backend se invalid response mila (JSON parse fail)")
-  }
+  const data = await enqueue(() => withRetry(() => rawCall(action, payload, token)))
 
   if (!data.ok) {
     // 401 = session expired/invalid — force logout so AuthGate kicks back to login
@@ -186,6 +253,7 @@ export const updateRecipient = (payload) => call("updateRecipient", payload)
 
 export const deleteRecipient = (id) => call("deleteRecipient", { id })
 
+export const deleteRecipientsBatch = (ids) => call("deleteRecipientsBatch", { ids })
 export const listSentLog = () => call("listSentLog")
 
 // ============================================================

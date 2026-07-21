@@ -38,6 +38,93 @@ const COLORS = {
   textSecondary: "#6B7280",
   textMuted: "#AAB2BD",
 };
+// ==================== FEEDBACK SYSTEM (toast + confirm modal) ====================
+// Native alert()/confirm() ki jagah — ek baar banaya, poori app mein use hoga.
+
+const FeedbackContext = createContext(null);
+
+function useFeedback() {
+  return useContext(FeedbackContext);
+}
+
+function FeedbackProvider({ children }) {
+  const [toast, setToast] = useState(null);       // { message, type }
+  const [confirmState, setConfirmState] = useState(null); // { message, resolve }
+
+  const showToast = useCallback((message, type = "info") => {
+    setToast({ message, type });
+    setTimeout(() => setToast(null), 3000);
+  }, []);
+
+  const showConfirm = useCallback((message) => {
+    return new Promise((resolve) => setConfirmState({ message, resolve }));
+  }, []);
+
+  const handleConfirm = (result) => {
+    confirmState?.resolve(result);
+    setConfirmState(null);
+  };
+
+  const toastColors = {
+    info: { bg: "#00BCD4", text: "#fff" },
+    success: { bg: "#0DB88E", text: "#fff" },
+    error: { bg: "#EF4462", text: "#fff" },
+  };
+
+  return (
+    <FeedbackContext.Provider value={{ showToast, showConfirm }}>
+      <style>{`@keyframes nectar-spin { to { transform: rotate(360deg); } } @keyframes nectar-toast-in { from { opacity: 0; transform: translate(-50%, 12px); } to { opacity: 1; transform: translate(-50%, 0); } }`}</style>
+      {children}
+
+      {toast && (
+        <div style={{
+          position: "fixed", bottom: 28, left: "50%", transform: "translateX(-50%)",
+          background: toastColors[toast.type]?.bg || toastColors.info.bg,
+          color: toastColors[toast.type]?.text || "#fff",
+          padding: "12px 22px", borderRadius: 10, fontSize: 13, fontWeight: 500,
+          boxShadow: "0 8px 24px rgba(0,0,0,0.18)", zIndex: 9999, maxWidth: "80vw",
+          animation: "nectar-toast-in 0.2s ease-out",
+        }}>
+          {toast.message}
+        </div>
+      )}
+
+      {confirmState && (
+        <div style={{
+          position: "fixed", inset: 0, background: "rgba(20,20,25,0.45)",
+          display: "flex", alignItems: "center", justifyContent: "center", zIndex: 10000,
+        }} onClick={() => handleConfirm(false)}>
+          <div onClick={(e) => e.stopPropagation()} style={{
+            background: "#fff", borderRadius: 14, padding: "24px 26px", maxWidth: 360,
+            boxShadow: "0 20px 60px rgba(0,0,0,0.25)",
+          }}>
+            <p style={{ fontSize: 14, color: "#1B1F27", margin: "0 0 20px", lineHeight: 1.5 }}>{confirmState.message}</p>
+            <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
+              <button onClick={() => handleConfirm(false)} style={{
+                padding: "8px 16px", borderRadius: 8, border: "1px solid #F1D9E5",
+                background: "transparent", color: "#6B7280", fontSize: 13, cursor: "pointer", fontFamily: "inherit",
+              }}>Cancel</button>
+              <button onClick={() => handleConfirm(true)} style={{
+                padding: "8px 16px", borderRadius: 8, border: "none",
+                background: "#EF4462", color: "#fff", fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: "inherit",
+              }}>Confirm</button>
+            </div>
+          </div>
+        </div>
+      )}
+    </FeedbackContext.Provider>
+  );
+}
+
+function Spinner({ size = 14, color = "#fff" }) {
+  return (
+    <span style={{
+      display: "inline-block", width: size, height: size,
+      border: `2px solid ${color}55`, borderTopColor: color,
+      borderRadius: "50%", animation: "nectar-spin 0.7s linear infinite", flexShrink: 0,
+    }} />
+  );
+}
 const currentUser = getCurrentUser();
 const NAV_ITEMS = [
   { id: "overview",  icon: "⬡", label: "Analytics" },
@@ -57,10 +144,20 @@ const STAT_CARDS = [
 ];
 
 export default function Dashboard() {
+  return (
+    <FeedbackProvider>
+      <DashboardInner />
+    </FeedbackProvider>
+  );
+}
+
+function DashboardInner() {
   const [active, setActive] = useState("overview");
   const [hovered, setHovered] = useState(null);
-  const handleLogout = () => {           // 👈 ye add karo
-    if (window.confirm("Log out karna hai?")) {
+  const { showConfirm } = useFeedback();
+  const handleLogout = async () => {
+    const ok = await showConfirm("Log out karna hai?");
+    if (ok) {
       logout();
       window.location.reload();
     }
@@ -317,6 +414,7 @@ function EditableCell({ value, onChange, placeholder, minWidth = 140, multiline 
 // ==================== LEADS PAGE ====================
 
 function LeadsPage() {
+  const { showToast } = useFeedback();
   const [keywords, setKeywords] = useState([]);
   const [kwInput, setKwInput] = useState("");
   const [category, setCategory] = useState("");
@@ -353,8 +451,8 @@ const [jobStatus, setJobStatus] = useState(null);
   const addPersonSlot = (index) => setLeads(prev => prev.map((l, i) => i !== index ? l : { ...l, people: [...(l.people || []), { name: "", title: "", email: "" }] }));
 
   const startScrape = async () => {
-    if (!category || !cities) return alert("Category aur cities daalo");
-    const target = parseInt(maxResults) || 20;
+if (!category || !cities) return showToast("Category aur cities daalo", "error");    
+const target = parseInt(maxResults) || 20;
     const cityList = cities.split(",").map(c => c.trim()).filter(Boolean);
     setLeads([]);
     setStatus("Starting...");
@@ -393,7 +491,7 @@ const [jobStatus, setJobStatus] = useState(null);
         }
         runningIndex += basicLeads.length;
       } catch (err) {
-        if (err.message === 'REQUEST_DENIED') { alert("Google Maps API key issue"); setStatus(null); return; }
+if (err.message === 'REQUEST_DENIED') { showToast("Google Maps API key issue", "error"); setStatus(null); return; }
         setStatus(`Error: ${err.message}`);
       }
     }
@@ -402,8 +500,7 @@ const [jobStatus, setJobStatus] = useState(null);
   const [elapsedSec, setElapsedSec] = useState(0);
 
 const startRadiusScrape = async () => {
-  if (!category || !pincode) return alert("Category aur pincode daalo");
-  setLeads([]);
+if (!category || !pincode) return showToast("Category aur pincode daalo", "error");  setLeads([]);
   setJobStatus("Starting...");
   setElapsedSec(0);
   const timer = setInterval(() => setElapsedSec(s => s + 1), 1000);
@@ -423,8 +520,8 @@ const startRadiusScrape = async () => {
     },
     async (job) => {
       clearInterval(timer);
-      if (job.status === "error") {
-        alert(`Error: ${job.resultSummary || "job failed"}`);
+    if (job.status === "error") {
+        showToast(`Error: ${job.resultSummary || "job failed"}`, "error");
       } else {
         const safeParseArray = (str) => {
       try { const p = JSON.parse(str); return Array.isArray(p) ? p : []; } catch { return []; }
@@ -466,8 +563,7 @@ setLeads(radiusLeads);
       const pc = []; for (let p = 0; p < maxPeopleCount; p++) { const per = (l.people||[])[p]||{}; pc.push(per.name||"",per.title||"",per.email||""); }
       return [l.name,l.category,l.city,(l.keywords_found||[]).join("; "),l.email,(l.allEmails||[]).join("; "),l.phone,l.website,l.linkedinUrl||"",(l.points||[]).join(" | "),...pc,l.address||"",l.rating||"","New",""].join("\t");
     });
-    navigator.clipboard.writeText([headers.join("\t"),...rows].join("\n")).then(()=>alert("Copied! Google Sheets → A1 → Ctrl+V"));
-  };
+navigator.clipboard.writeText([headers.join("\t"),...rows].join("\n")).then(()=>showToast("Copied! Google Sheets → A1 → Ctrl+V", "success"));  };
 
   const filtered = leads.map((l,i)=>({...l,originalIndex:i})).filter(l=>{
     const q=filter.toLowerCase();
@@ -542,8 +638,9 @@ setLeads(radiusLeads);
             <input type="number" min="1" max="500" value={maxResults} onChange={e=>setMaxResults(Math.max(1,parseInt(e.target.value)||1))} style={{ ...iS,width:90,padding:"8px 10px",textAlign:"center" }} />
             {maxResults > 60 && <span style={{ fontSize:11,color:COLORS.amber }}>⚡ 60+ mode — multiple area searches chalenge</span>}
           </div>
-       <button onClick={mode === "city" ? startScrape : startRadiusScrape} disabled={!!status || !!jobStatus} style={{ padding:"9px 22px",background:COLORS.accent,border:"none",borderRadius:8,color:"#fff",fontSize:13,fontWeight:600,cursor:(status||jobStatus)?"not-allowed":"pointer",fontFamily:"inherit",opacity:(status||jobStatus)?0.7:1 }}>
-  {(status||jobStatus) ? "◈ Running..." : "◈ Start scraping"}
+   <button onClick={mode === "city" ? startScrape : startRadiusScrape} disabled={!!status || !!jobStatus} style={{ padding:"9px 22px",background:COLORS.accent,border:"none",borderRadius:8,color:"#fff",fontSize:13,fontWeight:600,cursor:(status||jobStatus)?"not-allowed":"pointer",fontFamily:"inherit",opacity:(status||jobStatus)?0.7:1,display:"inline-flex",alignItems:"center",gap:8 }}>
+  {(status||jobStatus) && <Spinner size={13} />}
+  {(status||jobStatus) ? "Running..." : "◈ Start scraping"}
 </button>
           {leads.length > 0 && <>
             <button onClick={exportCSV} style={{ padding:"9px 16px",background:"transparent",border:`1px solid ${COLORS.border}`,borderRadius:8,color:COLORS.textSecondary,fontSize:13,cursor:"pointer",fontFamily:"inherit" }}>Export CSV</button>
@@ -794,4 +891,4 @@ const highlight = (text) => {
       )}
     </div>
   );
-}
+}    
