@@ -130,6 +130,10 @@ export const startLeadScrape = (category, cities, maxResults) =>
   callBackend("startLeadScrape", { category, cities, maxResults });
 export const startLeadScrapeRadius = (pincode, radiusKm, category, maxResults) =>
   callBackend("startLeadScrapeRadius", { pincode, radiusKm, category, maxResults });
+// ADD right after startLeadScrapeRadius:
+export const startAdvancedSearch = (payload) => callBackend("startAdvancedSearch", payload);
+// payload: { searchMode: "city"|"radius", category, cities, pincode, radiusKm, maxResults }
+export const getAdvancedSearchQuota = () => callBackend("getAdvancedSearchQuota");
 export const listLeads = () => callBackend("listLeads");
 export const updateLead = (id, patch) => callBackend("updateLead", { id, patch });
 

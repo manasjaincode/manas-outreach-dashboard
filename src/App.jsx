@@ -6,7 +6,7 @@ import AuthGate from "./AuthGate.jsx";   // 👈 ye add karo
 import { logout } from "./lib/auth.js";   // 👈 ye add karo
 import AdminPanel from "./AdminPanel.jsx";
 import { getCurrentUser } from "./lib/auth.js";
-import { startLeadScrapeRadius, pollJob, listLeads } from "./lib/api.js"; // top pe add karo
+import { startLeadScrapeRadius, pollJob, listLeads, startAdvancedSearch, getAdvancedSearchQuota } from "./lib/api.js";
 import { MapContainer, TileLayer, Marker, Popup } from "react-leaflet";
 import "leaflet/dist/leaflet.css";
 import L from "leaflet";
@@ -412,7 +412,20 @@ function EditableCell({ value, onChange, placeholder, minWidth = 140, multiline 
 }
 
 // ==================== LEADS PAGE ====================
-
+function confidenceColor(tier) {
+  if (tier === "direct") return COLORS.green;
+  if (tier === "pattern_mx") return COLORS.amber;
+  if (tier === "pattern_only") return "#FF8A3D";
+  if (tier === "web_search") return COLORS.accent;
+  return COLORS.textMuted;
+}
+function confidenceLabel(tier) {
+  if (tier === "direct") return "🟢 Direct";
+  if (tier === "pattern_mx") return "🟡 Pattern+MX";
+  if (tier === "pattern_only") return "🟠 Pattern only";
+  if (tier === "web_search") return "🔵 Web search";
+  return "—";
+}
 function LeadsPage() {
   const { showToast } = useFeedback();
   const [keywords, setKeywords] = useState([]);
@@ -428,6 +441,14 @@ const [mode, setMode] = useState("city"); // "city" | "radius"
 const [pincode, setPincode] = useState("");
 const [radiusKm, setRadiusKm] = useState(4);
 const [jobStatus, setJobStatus] = useState(null);
+const [advancedSubMode, setAdvancedSubMode] = useState("city"); // reuses category/cities/pincode/radiusKm above
+const [advStatus, setAdvStatus] = useState(null);
+const [advElapsedSec, setAdvElapsedSec] = useState(0);
+const [advQuota, setAdvQuota] = useState(null); // { used, cap }
+
+useEffect(() => {
+  getAdvancedSearchQuota().then(({ quota }) => setAdvQuota(quota)).catch(() => {});
+}, []);
   const addKw = (e) => {
     if ((e.key === "Enter" || e.key === ",") && kwInput.trim()) {
       e.preventDefault();
@@ -543,6 +564,69 @@ setLeads(radiusLeads);
     3000
   );
 };
+const startAdvancedSearchRun = async () => {
+  if (!category) return showToast("Category daalo", "error");
+  if (advancedSubMode === "city" && !cities) return showToast("Cities daalo", "error");
+  if (advancedSubMode === "radius" && !pincode) return showToast("Pincode daalo", "error");
+
+  setLeads([]);
+  setAdvStatus("Starting...");
+  setAdvElapsedSec(0);
+  const timer = setInterval(() => setAdvElapsedSec(s => s + 1), 1000);
+
+  let jobId;
+  try {
+    const res = await startAdvancedSearch({
+      searchMode: advancedSubMode,
+      category,
+      cities: advancedSubMode === "city" ? cities.split(",").map(c => c.trim()).filter(Boolean) : [],
+      pincode: advancedSubMode === "radius" ? pincode : "",
+      radiusKm: advancedSubMode === "radius" ? radiusKm : 0,
+      maxResults: parseInt(maxResults) || 20,
+    });
+    jobId = res.jobId;
+  } catch (err) {
+    clearInterval(timer);
+    setAdvStatus(null);
+    return showToast(err.message, "error");
+  }
+
+  pollJob(
+    jobId,
+    (job) => {
+      let progressText = job.status;
+      try {
+        const p = JSON.parse(job.progress || "{}");
+        if (p.phase === "searching") progressText = "Searching...";
+        else if (p.phase === "enriching") progressText = `Finding emails ${p.enrichIndex ?? 0}/${(p.queue||[]).length ?? 0} (3-layer)...`;
+      } catch {}
+      setAdvStatus(progressText);
+    },
+    async (job) => {
+      clearInterval(timer);
+      if (job.status === "error") {
+        showToast(`Error: ${job.resultSummary || "job failed"}`, "error");
+      } else {
+        const safeParseArray = (str) => { try { const p = JSON.parse(str); return Array.isArray(p) ? p : []; } catch { return []; } };
+        const { leads: allLeads } = await listLeads();
+        const advLeads = allLeads
+          .filter(l => l.searchJobId === jobId)
+          .map(l => ({
+            ...l,
+            points: typeof l.points === "string" ? l.points.split(" | ").filter(Boolean) : (l.points || []),
+            people: typeof l.people === "string" ? safeParseArray(l.people) : (l.people || []),
+            allEmails: typeof l.allEmails === "string" ? l.allEmails.split("; ").filter(Boolean) : (l.allEmails || []),
+            keywords_found: [],
+          }));
+        setLeads(advLeads);
+        if (job.resultSummary) showToast(job.resultSummary, job.resultSummary.includes("limit khatam") ? "error" : "success");
+      }
+      setAdvStatus(null);
+      getAdvancedSearchQuota().then(({ quota }) => setAdvQuota(quota)).catch(() => {});
+    },
+    3000
+  );
+};
   const maxPeopleCount = Math.max(1, ...leads.map(l => (l.people || []).length));
 
   const exportCSV = () => {
@@ -580,17 +664,17 @@ navigator.clipboard.writeText([headers.join("\t"),...rows].join("\n")).then(()=>
       <div style={{ background:COLORS.card,border:`1px solid ${COLORS.border}`,borderRadius:12,padding:"22px 24px",marginBottom:20 }}>
                {/* 👇 YAHAN — toggle daalo, card ke andar sabse pehli cheez */}
         <div style={{ display: "flex", gap: 8, marginBottom: 16 }}>
-          {["city", "radius"].map(m => (
-            <button key={m} onClick={() => setMode(m)}
-              style={{
-                padding: "7px 16px", borderRadius: 8, border: `1px solid ${mode===m?COLORS.accent:COLORS.border}`,
-                background: mode===m ? COLORS.accentDim : "transparent",
-                color: mode===m ? COLORS.accent : COLORS.textSecondary,
-                fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: "inherit",
-              }}>
-              {m === "city" ? "🏙 City search" : "📍 Pincode + Radius"}
-            </button>
-          ))}
+        {["city", "radius", "advanced"].map(m => (
+  <button key={m} onClick={() => setMode(m)}
+    style={{
+      padding: "7px 16px", borderRadius: 8, border: `1px solid ${mode===m?COLORS.accent:COLORS.border}`,
+      background: mode===m ? COLORS.accentDim : "transparent",
+      color: mode===m ? COLORS.accent : COLORS.textSecondary,
+      fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: "inherit",
+    }}>
+    {m === "city" ? "🏙 City search" : m === "radius" ? "📍 Pincode + Radius" : "🔬 Advanced Search"}
+  </button>
+))}
         </div>
    {mode === "city" && (
           <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr",gap:16,marginBottom:16 }}>
@@ -617,6 +701,36 @@ navigator.clipboard.writeText([headers.join("\t"),...rows].join("\n")).then(()=>
     </div>
   </div>
 )}
+{mode === "advanced" && (
+  <div>
+    <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
+      {["city", "radius"].map(sm => (
+        <button key={sm} onClick={() => setAdvancedSubMode(sm)} style={{
+          padding: "5px 12px", borderRadius: 6, fontSize: 11, cursor: "pointer",
+          border: `1px solid ${advancedSubMode===sm?COLORS.accent:COLORS.border}`,
+          background: advancedSubMode===sm ? COLORS.accentDim : "transparent",
+          color: advancedSubMode===sm ? COLORS.accent : COLORS.textSecondary,
+        }}>{sm === "city" ? "By city" : "By pincode + radius"}</button>
+      ))}
+    </div>
+    <div style={{ display: "grid", gridTemplateColumns: advancedSubMode === "city" ? "1fr 1fr" : "1fr 1fr 1fr", gap: 16, marginBottom: 16 }}>
+      <div><label style={lS}>Industry / Category</label><input style={iS} value={category} onChange={e=>setCategory(e.target.value)} placeholder="e.g. interior designers, CA firms, gyms" /></div>
+      {advancedSubMode === "city" ? (
+        <div><label style={lS}>Cities (comma separated)</label><input style={iS} value={cities} onChange={e=>setCities(e.target.value)} placeholder="e.g. Indore, Bhopal, Pune" /></div>
+      ) : (
+        <>
+          <div><label style={lS}>Pincode</label><input style={iS} value={pincode} onChange={e=>setPincode(e.target.value)} placeholder="e.g. 452001" maxLength={6} /></div>
+          <div><label style={lS}>Radius (km)</label><select style={iS} value={radiusKm} onChange={e=>setRadiusKm(Number(e.target.value))}>{[2,4,6,8,10].map(r=><option key={r} value={r}>{r} km</option>)}</select></div>
+        </>
+      )}
+    </div>
+    <div style={{ background: COLORS.accentDim, border: `1px solid ${COLORS.accent}33`, borderRadius: 8, padding: "10px 14px", marginBottom: 16, fontSize: 12, color: COLORS.textSecondary, lineHeight: 1.6 }}>
+      🔬 Multi-page crawl (contact/about/team pages) → pattern-guessed emails (MX-verified) → limited web-search fallback.
+      Slower than the other modes — emails are <b>confidence-scored, never "verified."</b>
+      {advQuota && <div style={{ marginTop: 6, color: advQuota.used >= advQuota.cap ? COLORS.red : COLORS.textSecondary }}>Web-search fallback used today: <b>{advQuota.used}/{advQuota.cap}</b></div>}
+    </div>
+  </div>
+)}
         <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr",gap:16,marginBottom:16 }}>
           <div>
             <label style={lS}>Keywords to match on website</label>
@@ -638,9 +752,12 @@ navigator.clipboard.writeText([headers.join("\t"),...rows].join("\n")).then(()=>
             <input type="number" min="1" max="500" value={maxResults} onChange={e=>setMaxResults(Math.max(1,parseInt(e.target.value)||1))} style={{ ...iS,width:90,padding:"8px 10px",textAlign:"center" }} />
             {maxResults > 60 && <span style={{ fontSize:11,color:COLORS.amber }}>⚡ 60+ mode — multiple area searches chalenge</span>}
           </div>
-   <button onClick={mode === "city" ? startScrape : startRadiusScrape} disabled={!!status || !!jobStatus} style={{ padding:"9px 22px",background:COLORS.accent,border:"none",borderRadius:8,color:"#fff",fontSize:13,fontWeight:600,cursor:(status||jobStatus)?"not-allowed":"pointer",fontFamily:"inherit",opacity:(status||jobStatus)?0.7:1,display:"inline-flex",alignItems:"center",gap:8 }}>
-  {(status||jobStatus) && <Spinner size={13} />}
-  {(status||jobStatus) ? "Running..." : "◈ Start scraping"}
+<button
+  onClick={mode === "city" ? startScrape : mode === "radius" ? startRadiusScrape : startAdvancedSearchRun}
+  disabled={!!status || !!jobStatus || !!advStatus}
+  style={{ padding:"9px 22px",background:COLORS.accent,border:"none",borderRadius:8,color:"#fff",fontSize:13,fontWeight:600,cursor:(status||jobStatus||advStatus)?"not-allowed":"pointer",fontFamily:"inherit",opacity:(status||jobStatus||advStatus)?0.7:1,display:"inline-flex",alignItems:"center",gap:8 }}>
+  {(status||jobStatus||advStatus) && <Spinner size={13} />}
+  {(status||jobStatus||advStatus) ? "Running..." : "◈ Start scraping"}
 </button>
           {leads.length > 0 && <>
             <button onClick={exportCSV} style={{ padding:"9px 16px",background:"transparent",border:`1px solid ${COLORS.border}`,borderRadius:8,color:COLORS.textSecondary,fontSize:13,cursor:"pointer",fontFamily:"inherit" }}>Export CSV</button>
@@ -653,7 +770,15 @@ navigator.clipboard.writeText([headers.join("\t"),...rows].join("\n")).then(()=>
     <span style={{ width:6,height:6,borderRadius:"50%",background:COLORS.amber,display:"inline-block" }}/>
     {jobStatus} — {Math.floor(elapsedSec/60)}m {elapsedSec%60}s elapsed
   </div>
-)}      </div>
+)}   
+{advStatus && (
+  <div style={{ marginTop:12,fontSize:12,color:COLORS.amber,display:"flex",alignItems:"center",gap:8 }}>
+    <span style={{ width:6,height:6,borderRadius:"50%",background:COLORS.amber,display:"inline-block" }}/>
+    {advStatus} — {Math.floor(advElapsedSec/60)}m {advElapsedSec%60}s elapsed
+  </div>
+)}
+
+   </div>
   {/* 👇 YAHAN paste karo */}
       {mode === "radius" && leads.length > 0 && (
         <div style={{ height: 400, borderRadius: 12, overflow: "hidden", marginBottom: 20, border: `1px solid ${COLORS.border}` }}>
@@ -697,6 +822,7 @@ navigator.clipboard.writeText([headers.join("\t"),...rows].join("\n")).then(()=>
                   <th style={{ ...thS,minWidth:90 }}>Website</th>
                   <th style={{ ...thS,minWidth:90 }}>LinkedIn</th>
                   <th style={{ ...thS,minWidth:320 }}>Company insights</th>
+                  <th style={{ ...thS,minWidth:130 }}>Confidence</th>
                   {Array.from({length:maxPeopleCount}).map((_,p)=>(
                     <th key={p} style={{ ...thS,minWidth:220 }}>Person {p+1} — Name / Title / Email</th>
                   ))}
@@ -710,39 +836,46 @@ navigator.clipboard.writeText([headers.join("\t"),...rows].join("\n")).then(()=>
                   const badgeColor=lead.enriching?COLORS.amber:score===3?COLORS.green:score>0?COLORS.amber:COLORS.textMuted;
                   const badgeLabel=lead.enriching?"Enriching...":score===3?"Full":score>0?"Partial":"Low";
                   return (
-                    <tr key={idx} style={{ borderBottom:`1px solid ${COLORS.border}` }}>
-                      <td style={tdS}><EditableCell value={lead.name} onChange={editField(idx,"name")} minWidth={150} color={COLORS.text}/></td>
-                      <td style={tdS}><EditableCell value={lead.city} onChange={editField(idx,"city")} minWidth={90}/></td>
-                      <td style={tdS}>
-                        <div style={{ display:"flex",flexWrap:"wrap",gap:4 }}>
-                          {lead.keywords_found?.length?lead.keywords_found.map((k,j)=>(<span key={j} style={{ background:COLORS.accentDim,color:COLORS.accent,fontSize:10,padding:"1px 6px",borderRadius:3 }}>{k}</span>)):<span style={{ color:COLORS.textMuted }}>—</span>}
-                        </div>
-                      </td>
-                      <td style={tdS}>
-                        <EditableCell value={lead.email} onChange={editField(idx,"email")} minWidth={160} color={COLORS.green} placeholder={lead.enriching?"searching...":"click to add"}/>
-                        {lead.allEmails?.length>1&&<div style={{ fontSize:10,color:COLORS.textMuted,marginTop:2 }}>+{lead.allEmails.length-1} more found</div>}
-                      </td>
-                      <td style={tdS}><EditableCell value={lead.phone} onChange={editField(idx,"phone")} minWidth={120}/></td>
-                      <td style={tdS}>{lead.website?<a href={lead.website} target="_blank" rel="noreferrer" style={{ color:COLORS.accent,textDecoration:"none",fontSize:11 }}>Open ↗</a>:<EditableCell value={lead.website} onChange={editField(idx,"website")} minWidth={80} placeholder="add url"/>}</td>
-                      <td style={tdS}>{lead.linkedinUrl?<a href={lead.linkedinUrl} target="_blank" rel="noreferrer" style={{ color:COLORS.accent,textDecoration:"none",fontSize:11 }}>Open ↗</a>:<EditableCell value={lead.linkedinUrl} onChange={editField(idx,"linkedinUrl")} minWidth={80} placeholder={lead.enriching?"searching...":"add url"}/>}</td>
-                      <td style={tdS}><EditableCell value={(lead.points||[]).join("\n")} onChange={val=>updateLead(idx,{points:val.split("\n").filter(Boolean)})} minWidth={300} multiline placeholder={lead.enriching?"Analyzing website...":"click to add insights"}/></td>
-                      {Array.from({length:maxPeopleCount}).map((_,p)=>{
-                        const person=(lead.people||[])[p]||{name:"",title:"",email:""};
-                        return (
-                          <td key={p} style={tdS}>
-                            <div style={{ display:"flex",flexDirection:"column",gap:3 }}>
-                              <EditableCell value={person.name} onChange={editPerson(idx,p,"name")} minWidth={200} placeholder="Name" color={COLORS.text}/>
-                              <EditableCell value={person.title} onChange={editPerson(idx,p,"title")} minWidth={200} placeholder="Designation"/>
-                              <EditableCell value={person.email} onChange={editPerson(idx,p,"email")} minWidth={200} placeholder="Email" color={COLORS.green}/>
-                            </div>
-                          </td>
-                        );
-                      })}
-                      <td style={tdS}>
-                        <span style={{ fontSize:10,color:badgeColor,fontWeight:600 }}>{badgeLabel}</span>
-                        <div><button onClick={()=>addPersonSlot(idx)} style={{ background:"none",border:"none",color:COLORS.accent,fontSize:10,cursor:"pointer",padding:0,marginTop:6 }}>+ person</button></div>
-                      </td>
-                    </tr>
+                  <tr key={idx} style={{ borderBottom:`1px solid ${COLORS.border}` }}>
+  <td style={tdS}><EditableCell value={lead.name} onChange={editField(idx,"name")} minWidth={150} color={COLORS.text}/></td>
+  <td style={tdS}><EditableCell value={lead.city} onChange={editField(idx,"city")} minWidth={90}/></td>
+  <td style={tdS}>
+    <div style={{ display:"flex",flexWrap:"wrap",gap:4 }}>
+      {lead.keywords_found?.length?lead.keywords_found.map((k,j)=>(<span key={j} style={{ background:COLORS.accentDim,color:COLORS.accent,fontSize:10,padding:"1px 6px",borderRadius:3 }}>{k}</span>)):<span style={{ color:COLORS.textMuted }}>—</span>}
+    </div>
+  </td>
+  <td style={tdS}>
+    <EditableCell value={lead.email} onChange={editField(idx,"email")} minWidth={160} color={COLORS.green} placeholder={lead.enriching?"searching...":"click to add"}/>
+    {lead.allEmails?.length>1&&<div style={{ fontSize:10,color:COLORS.textMuted,marginTop:2 }}>+{lead.allEmails.length-1} more found</div>}
+  </td>
+  <td style={tdS}><EditableCell value={lead.phone} onChange={editField(idx,"phone")} minWidth={120}/></td>
+  <td style={tdS}>{lead.website?<a href={lead.website} target="_blank" rel="noreferrer" style={{ color:COLORS.accent,textDecoration:"none",fontSize:11 }}>Open ↗</a>:<EditableCell value={lead.website} onChange={editField(idx,"website")} minWidth={80} placeholder="add url"/>}</td>
+  <td style={tdS}>{lead.linkedinUrl?<a href={lead.linkedinUrl} target="_blank" rel="noreferrer" style={{ color:COLORS.accent,textDecoration:"none",fontSize:11 }}>Open ↗</a>:<EditableCell value={lead.linkedinUrl} onChange={editField(idx,"linkedinUrl")} minWidth={80} placeholder={lead.enriching?"searching...":"add url"}/>}</td>
+  <td style={tdS}><EditableCell value={(lead.points||[]).join("\n")} onChange={val=>updateLead(idx,{points:val.split("\n").filter(Boolean)})} minWidth={300} multiline placeholder={lead.enriching?"Analyzing website...":"click to add insights"}/></td>
+  <td style={tdS}>
+    {lead.confidenceTier ? (
+      <span style={{ fontSize: 10, fontWeight: 700, padding: "3px 8px", borderRadius: 5, background: confidenceColor(lead.confidenceTier) + "20", color: confidenceColor(lead.confidenceTier) }}>
+        {confidenceLabel(lead.confidenceTier)} {lead.confidenceScore ? `(${lead.confidenceScore})` : ""}
+      </span>
+    ) : <span style={{ color: COLORS.textMuted }}>—</span>}
+  </td>
+  {Array.from({length:maxPeopleCount}).map((_,p)=>{
+    const person=(lead.people||[])[p]||{name:"",title:"",email:""};
+    return (
+      <td key={p} style={tdS}>
+        <div style={{ display:"flex",flexDirection:"column",gap:3 }}>
+          <EditableCell value={person.name} onChange={editPerson(idx,p,"name")} minWidth={200} placeholder="Name" color={COLORS.text}/>
+          <EditableCell value={person.title} onChange={editPerson(idx,p,"title")} minWidth={200} placeholder="Designation"/>
+          <EditableCell value={person.email} onChange={editPerson(idx,p,"email")} minWidth={200} placeholder="Email" color={COLORS.green}/>
+        </div>
+      </td>
+    );
+  })}
+  <td style={tdS}>
+    <span style={{ fontSize:10,color:badgeColor,fontWeight:600 }}>{badgeLabel}</span>
+    <div><button onClick={()=>addPersonSlot(idx)} style={{ background:"none",border:"none",color:COLORS.accent,fontSize:10,cursor:"pointer",padding:0,marginTop:6 }}>+ person</button></div>
+  </td>
+</tr>
                   );
                 })}
               </tbody>
