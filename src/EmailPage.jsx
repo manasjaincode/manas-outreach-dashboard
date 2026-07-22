@@ -337,11 +337,158 @@ const [addingRecipients, setAddingRecipients] = useState(false)
   const pollRef = useRef(null)
   const [rotateVariants, setRotateVariants] = useState(true)
 
-  const [sentLog, setSentLog] = useState([])
+const [sentLog, setSentLog] = useState([])
   const loadSentLog = async () => {
     try { const { sentLog: rows } = await api.listSentLog(); setSentLog(rows) } catch {}
   }
   useEffect(() => { loadSentLog() }, [])
+
+  // ── Follow-ups ──
+  const [followUps, setFollowUps] = useState([])
+  const [loadingFollowUps, setLoadingFollowUps] = useState(false)
+  const [lastSentBatch, setLastSentBatch] = useState(null) // { batchId, count } — shows the "Add to Follow-up" prompt after a send completes
+  const [addFollowUpMode, setAddFollowUpMode] = useState("auto")
+  const [addingToFollowUp, setAddingToFollowUp] = useState(false)
+  const [followUpSubView, setFollowUpSubView] = useState("tracking") // "tracking" | "templates"
+  const [sendNowTarget, setSendNowTarget] = useState(null) // row being manually sent
+  const [sendNowVariantIdx, setSendNowVariantIdx] = useState(0)
+  const [sendNowSubject, setSendNowSubject] = useState("")
+  const [sendNowBody, setSendNowBody] = useState("")
+  const [sendingNowId, setSendingNowId] = useState(null)
+  const [customDateDrafts, setCustomDateDrafts] = useState({})
+  const [followUpActionId, setFollowUpActionId] = useState(null) // any row currently mid-action (toggle/delete/schedule)
+
+  const loadFollowUps = async () => {
+    setLoadingFollowUps(true)
+    try { const { followUps: rows } = await api.listFollowUps(); setFollowUps(rows) }
+    catch (err) { showApiError(err) }
+    setLoadingFollowUps(false)
+  }
+  useEffect(() => { loadFollowUps() }, [])
+
+  // ── Follow-up templates (4 rotating variants, no industry/category) ──
+  const [followUpTemplates, setFollowUpTemplates] = useState([null, null, null, null])
+  const [loadingFollowUpTemplates, setLoadingFollowUpTemplates] = useState(false)
+  const [ftEditingIdx, setFtEditingIdx] = useState(null)
+  const [ftSubject, setFtSubject] = useState("")
+  const [ftBody, setFtBody] = useState("")
+
+  const loadFollowUpTemplates = async () => {
+    setLoadingFollowUpTemplates(true)
+    try {
+      const { templates: rows } = await api.listFollowUpTemplates()
+      const slots = [0, 1, 2, 3].map((idx) => {
+        const found = rows.find((r) => Number(r.variantIdx) === idx)
+        return found ? { id: found.id, variantIdx: idx, subject: found.subject, body: found.body } : { id: null, variantIdx: idx, subject: "", body: "" }
+      })
+      setFollowUpTemplates(slots)
+    } catch (err) { showApiError(err) }
+    setLoadingFollowUpTemplates(false)
+  }
+  useEffect(() => { if (activeView === "followups") { loadFollowUps(); loadFollowUpTemplates() } }, [activeView])
+
+  const ftOpenVariant = (idx) => {
+    const v = followUpTemplates[idx]
+    setFtEditingIdx(idx)
+    setFtSubject(v?.subject || "")
+    setFtBody(v?.body || "")
+  }
+
+  const ftSaveVariant = async () => {
+    if (ftEditingIdx === null) return
+    if (!ftSubject.trim() || !ftBody.trim()) { showToast("Subject aur Body dono bharo — variant save nahi hua!", "error"); return }
+    const existing = followUpTemplates[ftEditingIdx]
+    try {
+      const { template } = await api.saveFollowUpTemplate({ id: existing?.id || undefined, variantIdx: ftEditingIdx, subject: ftSubject, body: ftBody })
+      setFollowUpTemplates((prev) => prev.map((v, i) => i === ftEditingIdx ? { id: template.id, variantIdx: ftEditingIdx, subject: ftSubject, body: ftBody } : v))
+      showToast(`Follow-up variant ${ftEditingIdx + 1} saved!`, "success")
+    } catch (err) { showApiError(err) }
+  }
+
+  // Called from the post-send banner — pulls sender/time info from the
+  // just-completed batch's SentLog rows and registers each recipient.
+  const handleAddToFollowUp = async () => {
+    if (!lastSentBatch) return
+    setAddingToFollowUp(true)
+    try {
+      const { sentLog: freshLog } = await api.listSentLog()
+      const batchRows = freshLog.filter((l) => l.batchId === lastSentBatch.batchId && (l.status === "sent" || l.status === "scheduled"))
+      const items = batchRows.map((l) => {
+        const r = recipients.find((rec) => rec.email === l.email)
+        return {
+          email: l.email,
+          name: r?.name || "",
+          company: l.company || r?.company || "",
+          sender: l.sender,
+          initialBatchId: l.batchId,
+          initialSentAt: l.time,
+          mode: addFollowUpMode,
+        }
+      })
+      if (!items.length) { showToast("Is batch ke liye SentLog mein kuch nahi mila", "error"); setAddingToFollowUp(false); return }
+      await api.addToFollowUp(items)
+      showToast(`${items.length} recipients follow-up mein add ho gaye (${addFollowUpMode})`, "success")
+      setLastSentBatch(null)
+      loadFollowUps()
+    } catch (err) { showApiError(err) }
+    setAddingToFollowUp(false)
+  }
+
+  const toggleFollowUpMode = async (row) => {
+    setFollowUpActionId(row.id)
+    try {
+      if (row.mode === "auto") {
+        await api.updateFollowUp(row.id, { mode: "manual", nextFollowUpAt: "" })
+      } else {
+        const next = new Date(); next.setDate(next.getDate() + 1)
+        await api.updateFollowUp(row.id, { mode: "auto", status: "active", stoppedReason: "", followUpsSent: 0, nextFollowUpAt: next.toISOString() })
+      }
+      await loadFollowUps()
+    } catch (err) { showApiError(err) }
+    setFollowUpActionId(null)
+  }
+
+  const saveCustomDate = async (row) => {
+    const dateStr = customDateDrafts[row.id]
+    if (!dateStr) return
+    setFollowUpActionId(row.id)
+    try {
+      await api.updateFollowUp(row.id, { mode: "manual", status: "active", nextFollowUpAt: new Date(dateStr).toISOString() })
+      showToast("Custom date set!", "success")
+      loadFollowUps()
+    } catch (err) { showApiError(err) }
+    setFollowUpActionId(null)
+  }
+
+  const deleteFollowUpRow = async (row) => {
+    const ok = await showConfirm(`${row.recipientEmail} ko follow-up tracking se hata dein?`)
+    if (!ok) return
+    setFollowUpActionId(row.id)
+    try { await api.deleteFollowUp(row.id); setFollowUps((prev) => prev.filter((f) => f.id !== row.id)) }
+    catch (err) { showApiError(err) }
+    setFollowUpActionId(null)
+  }
+
+  const openSendNowModal = (row) => {
+    setSendNowTarget(row)
+    setSendNowVariantIdx(0)
+    const v = followUpTemplates[0]
+    setSendNowSubject(v?.subject || "")
+    setSendNowBody(v?.body || "")
+  }
+
+  const confirmSendNow = async () => {
+    if (!sendNowTarget) return
+    if (!sendNowSubject.trim() || !sendNowBody.trim()) { showToast("Subject aur Body bharo pehle!", "error"); return }
+    setSendingNowId(sendNowTarget.id)
+    try {
+      await api.sendFollowUpNow({ id: sendNowTarget.id, subject: sendNowSubject, body: sendNowBody })
+      showToast(`Follow-up bhej diya ${sendNowTarget.recipientEmail} ko!`, "success")
+      setSendNowTarget(null)
+      loadFollowUps()
+    } catch (err) { showApiError(err) }
+    setSendingNowId(null)
+  }
 
   const dailySentCount = sentLog.filter(l =>
     (l.status === "sent" || l.status === "scheduled") && new Date(l.time).toDateString() === new Date().toDateString()
@@ -612,7 +759,7 @@ const removeRecipient = async (id) => {
  
 
   // ── Job polling ──
-  const startPolling = (jobId, total) => {
+const startPolling = (jobId, total, batchId) => {
     if (pollRef.current) clearInterval(pollRef.current)
     pollRef.current = setInterval(async () => {
       try {
@@ -622,8 +769,10 @@ const removeRecipient = async (id) => {
         setSendJob({ jobId, status: job.status, index: progress.index || 0, total, resultSummary: job.resultSummary })
         if (job.status === "done" || job.status === "error") {
           clearInterval(pollRef.current); pollRef.current = null
-          if (job.status === "done") showToast(job.resultSummary || "Batch complete!", "success")
-          else showToast(`Job failed: ${job.resultSummary}`, "error")
+          if (job.status === "done") {
+            showToast(job.resultSummary || "Batch complete!", "success")
+            if (batchId) setLastSentBatch({ batchId, count: total })
+          } else showToast(`Job failed: ${job.resultSummary}`, "error")
           loadSentLog()
         }
       } catch { /* transient — try again next tick */ }
@@ -646,8 +795,8 @@ const removeRecipient = async (id) => {
     if (recipients.length === 0) { showToast("No recipients added", "error"); return }
     if (dailySentCount + recipients.length > DAILY_LIMIT) { showToast(`Daily limit: ${DAILY_LIMIT}`, "error"); return }
 
-    try {
-      const { jobId } = await api.startEmailSend({
+   try {
+      const { jobId, batchId } = await api.startEmailSend({
         subject: subjectOverride,
         body: bodyOverride,
         templates: templates.filter(t => t.subject && t.body).map(t => ({ subject: t.subject, body: t.body })),
@@ -659,7 +808,7 @@ const removeRecipient = async (id) => {
       })
       setSendJob({ jobId, status: "queued", index: 0, total: recipients.length })
       showToast(`Batch queued — ${recipients.length} recipient${recipients.length !== 1 ? "s" : ""}`, "success")
-      startPolling(jobId, recipients.length)
+      startPolling(jobId, recipients.length, batchId)
     } catch (err) { showApiError(err) }
   }
 
@@ -787,9 +936,10 @@ const healthColor = healthScore === null ? C.textMuted : healthScore >= 75 ? C.g
 
       {/* Top nav */}
       <div style={{ borderBottom: `1px solid ${C.border}`, padding: "0 24px", display: "flex", alignItems: "center", gap: 4, background: C.surface }}>
-        {[
+      {[
           { id: "compose", label: "✍️ Compose & Send" },
           { id: "templates", label: "📚 My Templates" },
+          { id: "followups", label: `⏰ Follow-ups (${followUps.length})` },
           { id: "tracking", label: `👁 Per-Email Tracking` },
           { id: "analytics", label: "📊 Analytics" },
           { id: "senders", label: `📮 Senders (${senders.length}/${allSenders.length})` },
@@ -1210,15 +1360,137 @@ const healthColor = healthScore === null ? C.textMuted : healthScore >= 75 ? C.g
                   {senders.length > 1 ? `🔀 Random across ${senders.length} senders` : "Single sender"}
                 </div>
 
-                {sentLog.length > 0 && (
+            {sentLog.length > 0 && (
                   <div style={{ marginLeft: "auto", fontSize: 12 }}>
                     <span style={{ color: C.green }}>✓ {sentLog.filter(s => s.status === "sent" || s.status === "scheduled").length} sent</span>
                     {sentLog.some(s => s.status === "error") && <span style={{ color: C.red, marginLeft: 8 }}>✗ {sentLog.filter(s => s.status === "error").length} failed</span>}
                   </div>
                 )}
               </div>
+
+              {lastSentBatch && (
+                <div style={{ marginTop: 14, background: C.accentDim, border: `1px solid ${C.accent}44`, borderRadius: 10, padding: "12px 16px", display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+                  <span style={{ fontSize: 13, color: C.text }}>✅ {lastSentBatch.count} bheji gayi — inhe follow-up tracking mein daalein?</span>
+                  <select value={addFollowUpMode} onChange={e => setAddFollowUpMode(e.target.value)} style={{ padding: "6px 10px", borderRadius: 6, border: `1px solid ${C.border2}`, fontSize: 12, cursor: "pointer" }}>
+                    <option value="auto">🤖 Automate (Day 1/3/5/7)</option>
+                    <option value="manual">✋ Manual (mai khud control karunga)</option>
+                  </select>
+                  <button onClick={handleAddToFollowUp} disabled={addingToFollowUp} style={{ padding: "7px 16px", borderRadius: 7, border: "none", background: C.accent, color: "#fff", fontSize: 12, fontWeight: 700, cursor: addingToFollowUp ? "not-allowed" : "pointer", opacity: addingToFollowUp ? 0.6 : 1, display: "inline-flex", alignItems: "center", gap: 6 }}>
+                    {addingToFollowUp && <Spinner size={11} />}
+                    {addingToFollowUp ? "Adding..." : "➕ Add to Follow-up"}
+                  </button>
+                  <button onClick={() => setLastSentBatch(null)} style={{ background: "none", border: "none", color: C.textMuted, cursor: "pointer", fontSize: 12 }}>Dismiss</button>
+                </div>
+              )}
             </div>
           </div>
+        </div>
+      )}
+
+  {/* ── FOLLOW-UPS ── */}
+      {activeView === "followups" && (
+        <div style={{ padding: 24 }}>
+          <div style={{ display: "flex", gap: 8, marginBottom: 20 }}>
+            <button onClick={() => setFollowUpSubView("tracking")} style={{ padding: "8px 18px", borderRadius: 8, fontSize: 13, cursor: "pointer", border: `1px solid ${followUpSubView === "tracking" ? C.accent : C.border2}`, background: followUpSubView === "tracking" ? C.accentDim : "transparent", color: followUpSubView === "tracking" ? C.accent : C.textMuted, fontWeight: followUpSubView === "tracking" ? 600 : 400 }}>📋 Tracking</button>
+            <button onClick={() => setFollowUpSubView("templates")} style={{ padding: "8px 18px", borderRadius: 8, fontSize: 13, cursor: "pointer", border: `1px solid ${followUpSubView === "templates" ? C.accent : C.border2}`, background: followUpSubView === "templates" ? C.accentDim : "transparent", color: followUpSubView === "templates" ? C.accent : C.textMuted, fontWeight: followUpSubView === "templates" ? 600 : 400 }}>✉️ Templates (4 variants)</button>
+            <button onClick={loadFollowUps} disabled={loadingFollowUps} style={{ marginLeft: "auto", padding: "8px 16px", borderRadius: 7, border: `1px solid ${C.border2}`, background: C.card, color: C.text, cursor: "pointer", fontSize: 12 }}>{loadingFollowUps ? "..." : "🔄 Refresh"}</button>
+          </div>
+
+          {followUpSubView === "tracking" && (
+            followUps.length === 0 ? (
+              <div style={{ color: C.textMuted, textAlign: "center", padding: 60 }}>
+                {loadingFollowUps ? "Loading..." : "Koi follow-up track nahi ho rahi abhi. Ek batch bhejo, phir 'Add to Follow-up' dabao."}
+              </div>
+            ) : (
+              <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                {followUps.map((row) => {
+                  const statusColor = row.status === "active" ? C.green : row.status === "stopped" ? C.yellow : row.status === "paused" ? C.textMuted : row.status === "completed" ? C.accent : C.red
+                  const busy = followUpActionId === row.id
+                  return (
+                    <div key={row.id} style={{ background: C.card, border: `1px solid ${C.border2}`, borderRadius: 10, padding: "14px 18px" }}>
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: 10 }}>
+                        <div>
+                          <div style={{ fontWeight: 700, fontSize: 14 }}>{row.recipientName || row.company || row.recipientEmail}</div>
+                          <div style={{ fontSize: 11, color: C.textMuted, marginTop: 2 }}>{row.recipientEmail} · via {row.sender}</div>
+                          <div style={{ fontSize: 11, color: C.textDim, marginTop: 2 }}>
+                            Initial: {row.initialSentAt ? new Date(row.initialSentAt).toLocaleDateString() : "—"} · Follow-ups sent: {row.followUpsSent || 0}
+                            {row.nextFollowUpAt && row.status === "active" && <span> · Next: {new Date(row.nextFollowUpAt).toLocaleString()}</span>}
+                            {row.stoppedReason && <span> · Stopped: {row.stoppedReason}</span>}
+                          </div>
+                        </div>
+                        <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
+                          <span style={{ fontSize: 10, padding: "3px 8px", borderRadius: 5, background: statusColor + "20", color: statusColor, fontWeight: 700, textTransform: "uppercase" }}>{row.status}</span>
+                          <span style={{ fontSize: 10, padding: "3px 8px", borderRadius: 5, background: C.border, color: C.textMuted }}>{row.mode === "auto" ? "🤖 Auto" : "✋ Manual"}</span>
+                        </div>
+                      </div>
+
+                      <div style={{ marginTop: 12, display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+                        <button onClick={() => toggleFollowUpMode(row)} disabled={busy} style={{ fontSize: 11, padding: "6px 12px", borderRadius: 6, border: `1px solid ${C.border2}`, background: "transparent", color: C.textMuted, cursor: busy ? "not-allowed" : "pointer" }}>
+                          {row.mode === "auto" ? "✋ Switch to Manual" : "🤖 Automate (restart Day 1)"}
+                        </button>
+                        {row.mode === "manual" && (
+                          <>
+                            <input type="datetime-local" value={customDateDrafts[row.id] || ""} onChange={e => setCustomDateDrafts(prev => ({ ...prev, [row.id]: e.target.value }))}
+                              style={{ fontSize: 11, padding: "6px 8px", borderRadius: 6, border: `1px solid ${C.border2}` }} />
+                            <button onClick={() => saveCustomDate(row)} disabled={busy || !customDateDrafts[row.id]} style={{ fontSize: 11, padding: "6px 12px", borderRadius: 6, border: `1px solid ${C.accent}44`, background: C.accentDim, color: C.accent, cursor: (busy || !customDateDrafts[row.id]) ? "not-allowed" : "pointer" }}>📅 Set Date</button>
+                          </>
+                        )}
+                        <button onClick={() => openSendNowModal(row)} disabled={busy} style={{ fontSize: 11, padding: "6px 12px", borderRadius: 6, border: `1px solid ${C.green}44`, background: C.greenDim, color: C.green, cursor: busy ? "not-allowed" : "pointer" }}>📤 Send Now</button>
+                        <button onClick={() => deleteFollowUpRow(row)} disabled={busy} style={{ fontSize: 11, padding: "6px 12px", borderRadius: 6, border: `1px solid ${C.redDim}`, background: "transparent", color: C.red, cursor: busy ? "not-allowed" : "pointer", marginLeft: "auto" }}>
+                          {busy ? <Spinner size={10} color={C.red} /> : "🗑 Remove"}
+                        </button>
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+            )
+          )}
+
+          {followUpSubView === "templates" && (
+            <div style={{ display: "grid", gridTemplateColumns: "220px 1fr", gap: 20 }}>
+              <div>
+                <div style={{ fontSize: 11, color: C.textMuted, textTransform: "uppercase", letterSpacing: 1, marginBottom: 10 }}>4 Variants (Day 1/3/5/7)</div>
+                <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                  {followUpTemplates.map((v, idx) => {
+                    const isFilled = v?.subject && v?.body
+                    const isEditing = ftEditingIdx === idx
+                    return (
+                      <button key={idx} onClick={() => ftOpenVariant(idx)} style={{
+                        padding: "10px 14px", borderRadius: 8, textAlign: "left", cursor: "pointer",
+                        border: `1px solid ${isEditing ? C.accent : C.border2}`,
+                        background: isEditing ? C.accentDim : C.card,
+                        color: isEditing ? C.accent : isFilled ? C.text : C.textDim, fontSize: 13, position: "relative",
+                      }}>
+                        Follow-up {idx + 1} (Day {[1, 3, 5, 7][idx]})
+                        {isFilled && <span style={{ position: "absolute", top: 8, right: 8, width: 6, height: 6, borderRadius: "50%", background: C.green }} />}
+                      </button>
+                    )
+                  })}
+                </div>
+              </div>
+              <div>
+                {ftEditingIdx === null ? (
+                  <div style={{ color: C.textDim, fontSize: 13, textAlign: "center", padding: 60 }}>Koi variant select karo edit karne ke liye</div>
+                ) : (
+                  <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+                    <div>
+                      <div style={{ fontSize: 11, color: C.textMuted, marginBottom: 6, textTransform: "uppercase", letterSpacing: 1 }}>Subject — Variant {ftEditingIdx + 1}</div>
+                      <input value={ftSubject} onChange={e => setFtSubject(e.target.value)} placeholder="e.g. Following up on my last email"
+                        style={{ width: "100%", background: C.card, border: `1px solid ${C.border2}`, color: C.text, padding: "10px 14px", borderRadius: 8, fontSize: 14, fontWeight: 600, boxSizing: "border-box" }} />
+                    </div>
+                    <div>
+                      <div style={{ fontSize: 11, color: C.textMuted, marginBottom: 6, textTransform: "uppercase", letterSpacing: 1 }}>Body</div>
+                      <textarea value={ftBody} onChange={e => setFtBody(e.target.value)}
+                        placeholder={`Hi {{contact}},\n\nJust following up on my previous email...\n\nBest,\n{{sender_name}}`}
+                        style={{ width: "100%", minHeight: 260, background: C.card, border: `1px solid ${C.border2}`, color: C.text, padding: 14, borderRadius: 8, fontSize: 13, lineHeight: 1.7, resize: "vertical", boxSizing: "border-box", fontFamily: "monospace" }} />
+                    </div>
+                    <button onClick={ftSaveVariant} style={{ padding: "10px 24px", background: C.accent, border: "none", color: "#fff", borderRadius: 8, cursor: "pointer", fontWeight: 700, fontSize: 13, width: "fit-content" }}>✅ Save Variant {ftEditingIdx + 1}</button>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
         </div>
       )}
 
@@ -1943,7 +2215,60 @@ const healthColor = healthScore === null ? C.textMuted : healthScore >= 75 ? C.g
         )
       })()}
 
-   <Toast toast={toast} onClose={() => setToast(null)} />
+ {/* ── FOLLOW-UP SEND NOW MODAL ── */}
+      {sendNowTarget && (
+        <>
+          <div onClick={() => !sendingNowId && setSendNowTarget(null)} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.75)", zIndex: 1000, backdropFilter: "blur(4px)" }} />
+          <div style={{
+            position: "fixed", top: "50%", left: "50%", transform: "translate(-50%, -50%)",
+            width: "min(600px, 92vw)", maxHeight: "88vh", background: C.surface,
+            border: `1px solid ${C.border2}`, borderRadius: 16, zIndex: 1001,
+            display: "flex", flexDirection: "column", boxShadow: "0 32px 96px rgba(0,0,0,0.6)", overflow: "hidden",
+          }}>
+            <div style={{ padding: "16px 24px", borderBottom: `1px solid ${C.border}`, display: "flex", justifyContent: "space-between", alignItems: "center", background: C.card, flexShrink: 0 }}>
+              <div>
+                <div style={{ fontWeight: 700, fontSize: 15 }}>📤 Send Follow-up Now</div>
+                <div style={{ fontSize: 11, color: C.textMuted, marginTop: 2 }}>{sendNowTarget.recipientEmail}</div>
+              </div>
+              <button onClick={() => setSendNowTarget(null)} disabled={!!sendingNowId} style={{ width: 32, height: 32, borderRadius: "50%", background: C.border2, border: "none", color: C.text, cursor: sendingNowId ? "not-allowed" : "pointer", fontSize: 16 }}>✕</button>
+            </div>
+            <div style={{ padding: 24, overflowY: "auto", display: "flex", flexDirection: "column", gap: 14 }}>
+              <div>
+                <div style={{ fontSize: 11, color: C.textMuted, marginBottom: 8, textTransform: "uppercase", letterSpacing: 1 }}>Ek variant se load karo (ya niche khud likho)</div>
+                <div style={{ display: "flex", gap: 6 }}>
+                  {followUpTemplates.map((v, idx) => (
+                    <button key={idx} onClick={() => { setSendNowVariantIdx(idx); setSendNowSubject(v?.subject || ""); setSendNowBody(v?.body || "") }} style={{
+                      padding: "6px 14px", borderRadius: 6, fontSize: 12, cursor: "pointer",
+                      border: `1px solid ${sendNowVariantIdx === idx ? C.accent : C.border2}`,
+                      background: sendNowVariantIdx === idx ? C.accentDim : "transparent",
+                      color: sendNowVariantIdx === idx ? C.accent : C.textMuted,
+                    }}>Variant {idx + 1}</button>
+                  ))}
+                </div>
+              </div>
+              <div>
+                <div style={{ fontSize: 11, color: C.textMuted, marginBottom: 6, textTransform: "uppercase", letterSpacing: 1 }}>Subject</div>
+                <input value={sendNowSubject} onChange={e => setSendNowSubject(e.target.value)}
+                  style={{ width: "100%", background: C.card, border: `1px solid ${C.border2}`, color: C.text, padding: "10px 14px", borderRadius: 8, fontSize: 14, fontWeight: 600, boxSizing: "border-box" }} />
+              </div>
+              <div>
+                <div style={{ fontSize: 11, color: C.textMuted, marginBottom: 6, textTransform: "uppercase", letterSpacing: 1 }}>Body</div>
+                <textarea value={sendNowBody} onChange={e => setSendNowBody(e.target.value)}
+                  style={{ width: "100%", minHeight: 220, background: C.card, border: `1px solid ${C.border2}`, color: C.text, padding: 14, borderRadius: 8, fontSize: 13, lineHeight: 1.7, resize: "vertical", boxSizing: "border-box", fontFamily: "monospace" }} />
+              </div>
+            </div>
+            <div style={{ padding: "14px 24px", borderTop: `1px solid ${C.border}`, background: C.card, display: "flex", justifyContent: "flex-end", gap: 10, flexShrink: 0 }}>
+              <button onClick={() => setSendNowTarget(null)} disabled={!!sendingNowId} style={{ padding: "9px 18px", borderRadius: 8, border: `1px solid ${C.border2}`, background: "transparent", color: C.textMuted, fontSize: 13, cursor: sendingNowId ? "not-allowed" : "pointer" }}>Cancel</button>
+              <button onClick={confirmSendNow} disabled={!!sendingNowId} style={{ padding: "9px 22px", borderRadius: 8, border: "none", background: C.accent, color: "#fff", fontSize: 13, fontWeight: 700, cursor: sendingNowId ? "not-allowed" : "pointer", display: "inline-flex", alignItems: "center", gap: 8, opacity: sendingNowId ? 0.6 : 1 }}>
+                {sendingNowId && <Spinner size={13} />}
+                {sendingNowId ? "Sending..." : "🚀 Send Now"}
+              </button>
+            </div>
+          </div>
+        </>
+      )}
+
+      <Toast toast={toast} onClose={() => setToast(null)} />
       <ConfirmModal state={confirmState} onResult={handleConfirmResult} />
     </div>
   )

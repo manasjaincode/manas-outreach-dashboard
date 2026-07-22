@@ -190,3 +190,15 @@ export const pollJob = (jobId, onUpdate, onDone, intervalMs = 4000) => {
   return () => clearInterval(timer); // caller can cancel if component unmounts
 };
 export const listDriveAttachments = () => callBackend("listDriveAttachments");
+
+// ---- Follow-ups ----
+export const addToFollowUp = (items) => callBackend("addToFollowUp", { items });
+export const listFollowUps = () => callBackend("listFollowUps");
+export const updateFollowUp = (id, patch) => callBackend("updateFollowUp", { id, patch });
+export const pauseFollowUp = (id) => callBackend("pauseFollowUp", { id });
+export const resumeFollowUp = (id) => callBackend("resumeFollowUp", { id });
+export const deleteFollowUp = (id) => callBackend("deleteFollowUp", { id });
+export const sendFollowUpNow = (payload) => callBackend("sendFollowUpNow", payload); // { id, subject?, body?, variantIdx? }
+export const listFollowUpTemplates = () => callBackend("listFollowUpTemplates");
+export const saveFollowUpTemplate = (template) => callBackend("saveFollowUpTemplate", template);
+export const deleteFollowUpTemplate = (id) => callBackend("deleteFollowUpTemplate", { id });
