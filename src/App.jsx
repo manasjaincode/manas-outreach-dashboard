@@ -1,4 +1,4 @@
-import { useState, useEffect, useContext, createContext, useCallback } from "react";
+import { useState, useEffect, useContext, createContext, useCallback, useRef } from "react";
 import { searchPlacesMulti, getPlaceDetails, enrichLead } from "./config.js";
 import EmailPage from "./EmailPage.jsx";
 import ProposalGenerator from "./ProposalGenerator.jsx";   // 👈 ye add karo
@@ -426,6 +426,10 @@ function confidenceLabel(tier) {
   if (tier === "web_search") return "🔵 Web search";
   return "—";
 }
+const ACTIVE_JOB_KEY = "nectar_active_lead_job";
+const saveActiveJob = (job) => { try { localStorage.setItem(ACTIVE_JOB_KEY, JSON.stringify(job)); } catch {} };
+const loadActiveJob = () => { try { return JSON.parse(localStorage.getItem(ACTIVE_JOB_KEY) || "null"); } catch { return null; } };
+const clearActiveJob = () => { try { localStorage.removeItem(ACTIVE_JOB_KEY); } catch {} };
 function LeadsPage() {
   const { showToast } = useFeedback();
   const [keywords, setKeywords] = useState([]);
@@ -445,6 +449,87 @@ const [advancedSubMode, setAdvancedSubMode] = useState("city"); // reuses catego
 const [advStatus, setAdvStatus] = useState(null);
 const [advElapsedSec, setAdvElapsedSec] = useState(0);
 const [advQuota, setAdvQuota] = useState(null); // { used, cap }
+const pollCleanupRef = useRef(null);
+const secsTimerRef = useRef(null);
+
+// Shared resume/attach logic — jobId + jobType diya, chahe naya job ho ya
+// resume kiya gaya purana job, dono isi function se guzarte hain.
+const resumeJobPolling = (jobId, jobType, startedAt) => {
+  const isAdvanced = jobType === "advanced";
+
+  if (secsTimerRef.current) clearInterval(secsTimerRef.current);
+  secsTimerRef.current = setInterval(() => {
+    const secs = Math.floor((Date.now() - startedAt) / 1000);
+    if (isAdvanced) setAdvElapsedSec(secs); else setElapsedSec(secs);
+  }, 1000);
+
+  if (pollCleanupRef.current) pollCleanupRef.current();
+  pollCleanupRef.current = pollJob(
+    jobId,
+    (job) => {
+      let progressText = job.status;
+      try {
+        const p = JSON.parse(job.progress || "{}");
+        if (jobType === "radius") {
+          if (p.phase === "searching") progressText = `Searching area ${p.gridIndex ?? 0}/${(p.gridPoints||[]).length || 1}...`;
+          else if (p.phase === "enriching") progressText = `Enriching ${p.enrichIndex ?? 0}/${(p.queue||[]).length ?? 0} leads...`;
+        } else if (jobType === "advanced") {
+          if (p.phase === "searching") progressText = "Searching...";
+          else if (p.phase === "enriching") progressText = `Finding emails ${p.enrichIndex ?? 0}/${(p.queue||[]).length ?? 0} (3-layer)...`;
+        }
+      } catch {}
+      if (isAdvanced) setAdvStatus(progressText); else setJobStatus(progressText);
+    },
+    async (job) => {
+      clearInterval(secsTimerRef.current);
+      clearActiveJob();
+      if (job.status === "error") {
+        showToast(`Error: ${job.resultSummary || "job failed"}`, "error");
+      } else {
+        const safeParseArray = (str) => { try { const p = JSON.parse(str); return Array.isArray(p) ? p : []; } catch { return []; } };
+        const { leads: allLeads } = await listLeads();
+        const jobLeads = allLeads.filter(l => l.searchJobId === jobId).map(l => ({
+          ...l,
+          points: typeof l.points === "string" ? l.points.split(" | ").filter(Boolean) : (l.points || []),
+          people: typeof l.people === "string" ? safeParseArray(l.people) : (l.people || []),
+          allEmails: typeof l.allEmails === "string" ? l.allEmails.split("; ").filter(Boolean) : (l.allEmails || []),
+          keywords_found: l.keywords_found || [],
+        }));
+        setLeads(jobLeads);
+        if (job.resultSummary) showToast(job.resultSummary, job.resultSummary.includes("limit khatam") ? "error" : "success");
+      }
+      if (isAdvanced) { setAdvStatus(null); getAdvancedSearchQuota().then(({ quota }) => setAdvQuota(quota)).catch(() => {}); }
+      else setJobStatus(null);
+    },
+    3000
+  );
+};
+
+// Mount pe (refresh ke baad YA tab switch karke wapas Leads pe aane par) —
+// check karo koi job chal to nahi raha tha, agar haan to resume karo.
+useEffect(() => {
+  const saved = loadActiveJob();
+  if (!saved) return;
+  const { jobId, jobType, startedAt, category: c, cities: ct, pincode: pc, radiusKm: rk, maxResults: mr } = saved;
+
+  setCategory(c || "");
+  if (jobType === "city") setCities(ct || "");
+  if (jobType === "radius" || jobType === "advanced") { setPincode(pc || ""); setRadiusKm(rk || 4); }
+  setMode(jobType === "advanced" ? "advanced" : jobType === "radius" ? "radius" : "city");
+  setMaxResults(mr || 20);
+
+  const elapsedAtLoad = Math.floor((Date.now() - startedAt) / 1000);
+  if (jobType === "advanced") { setAdvStatus("Resuming..."); setAdvElapsedSec(elapsedAtLoad); }
+  else { setJobStatus("Resuming..."); setElapsedSec(elapsedAtLoad); }
+
+  resumeJobPolling(jobId, jobType, startedAt);
+}, []);
+
+// Component hatte waqt (tab switch) intervals clean karo — duplicate na banein
+useEffect(() => () => {
+  if (pollCleanupRef.current) pollCleanupRef.current();
+  if (secsTimerRef.current) clearInterval(secsTimerRef.current);
+}, []);
 
 useEffect(() => {
   getAdvancedSearchQuota().then(({ quota }) => setAdvQuota(quota)).catch(() => {});
@@ -521,48 +606,24 @@ if (err.message === 'REQUEST_DENIED') { showToast("Google Maps API key issue", "
   const [elapsedSec, setElapsedSec] = useState(0);
 
 const startRadiusScrape = async () => {
-if (!category || !pincode) return showToast("Category aur pincode daalo", "error");  setLeads([]);
+  if (!category || !pincode) return showToast("Category aur pincode daalo", "error");
+  setLeads([]);
   setJobStatus("Starting...");
   setElapsedSec(0);
-  const timer = setInterval(() => setElapsedSec(s => s + 1), 1000);
 
-  const { jobId } = await startLeadScrapeRadius(pincode, radiusKm, category, parseInt(maxResults) || 20);
+  let jobId;
+  try {
+    const res = await startLeadScrapeRadius(pincode, radiusKm, category, parseInt(maxResults) || 20);
+    jobId = res.jobId;
+  } catch (err) {
+    setJobStatus(null);
+    return showToast(err.message, "error");
+  }
 
-  pollJob(
-    jobId,
-    (job) => {
-      let progressText = job.status;
-      try {
-        const p = JSON.parse(job.progress || "{}");
-        if (p.phase === "searching") progressText = `Searching area ${p.gridIndex ?? 0}/${(p.gridPoints||[]).length || 1}...`;
-        else if (p.phase === "enriching") progressText = `Enriching ${p.enrichIndex ?? 0}/${(p.queue||[]).length ?? 0} leads...`;
-      } catch {}
-      setJobStatus(progressText);
-    },
-    async (job) => {
-      clearInterval(timer);
-    if (job.status === "error") {
-        showToast(`Error: ${job.resultSummary || "job failed"}`, "error");
-      } else {
-        const safeParseArray = (str) => {
-      try { const p = JSON.parse(str); return Array.isArray(p) ? p : []; } catch { return []; }
-    };
-      const { leads: allLeads } = await listLeads();
-        const radiusLeads = allLeads
-  .filter(l => l.searchJobId === jobId)
-  .map(l => ({
-    ...l,
-    points: typeof l.points === "string" ? l.points.split(" | ").filter(Boolean) : (l.points || []),
-    people: typeof l.people === "string" ? safeParseArray(l.people) : (l.people || []),
-    allEmails: typeof l.allEmails === "string" ? l.allEmails.split("; ").filter(Boolean) : (l.allEmails || []),
-    keywords_found: l.keywords_found || [],
-  }));
-setLeads(radiusLeads);
-      }
-      setJobStatus(null);
-    },
-    3000
-  );
+  const startedAt = Date.now();
+  const params = { category, pincode, radiusKm, maxResults: parseInt(maxResults) || 20 };
+  saveActiveJob({ jobId, jobType: "radius", startedAt, ...params });
+  resumeJobPolling(jobId, "radius", startedAt);
 };
 const startAdvancedSearchRun = async () => {
   if (!category) return showToast("Category daalo", "error");
@@ -572,7 +633,6 @@ const startAdvancedSearchRun = async () => {
   setLeads([]);
   setAdvStatus("Starting...");
   setAdvElapsedSec(0);
-  const timer = setInterval(() => setAdvElapsedSec(s => s + 1), 1000);
 
   let jobId;
   try {
@@ -590,42 +650,13 @@ const startAdvancedSearchRun = async () => {
     setAdvStatus(null);
     return showToast(err.message, "error");
   }
-
-  pollJob(
-    jobId,
-    (job) => {
-      let progressText = job.status;
-      try {
-        const p = JSON.parse(job.progress || "{}");
-        if (p.phase === "searching") progressText = "Searching...";
-        else if (p.phase === "enriching") progressText = `Finding emails ${p.enrichIndex ?? 0}/${(p.queue||[]).length ?? 0} (3-layer)...`;
-      } catch {}
-      setAdvStatus(progressText);
-    },
-    async (job) => {
-      clearInterval(timer);
-      if (job.status === "error") {
-        showToast(`Error: ${job.resultSummary || "job failed"}`, "error");
-      } else {
-        const safeParseArray = (str) => { try { const p = JSON.parse(str); return Array.isArray(p) ? p : []; } catch { return []; } };
-        const { leads: allLeads } = await listLeads();
-        const advLeads = allLeads
-          .filter(l => l.searchJobId === jobId)
-          .map(l => ({
-            ...l,
-            points: typeof l.points === "string" ? l.points.split(" | ").filter(Boolean) : (l.points || []),
-            people: typeof l.people === "string" ? safeParseArray(l.people) : (l.people || []),
-            allEmails: typeof l.allEmails === "string" ? l.allEmails.split("; ").filter(Boolean) : (l.allEmails || []),
-            keywords_found: [],
-          }));
-        setLeads(advLeads);
-        if (job.resultSummary) showToast(job.resultSummary, job.resultSummary.includes("limit khatam") ? "error" : "success");
-      }
-      setAdvStatus(null);
-      getAdvancedSearchQuota().then(({ quota }) => setAdvQuota(quota)).catch(() => {});
-    },
-    3000
-  );
+const startedAt = Date.now();
+  saveActiveJob({
+    jobId, jobType: "advanced", startedAt,
+    category, cities: advancedSubMode === "city" ? cities : "", pincode: advancedSubMode === "radius" ? pincode : "",
+    radiusKm, maxResults: parseInt(maxResults) || 20,
+  });
+  resumeJobPolling(jobId, "advanced", startedAt);
 };
   const maxPeopleCount = Math.max(1, ...leads.map(l => (l.people || []).length));
 

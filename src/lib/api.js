@@ -182,16 +182,27 @@ export const getAnalytics = () => callBackend("getAnalytics");
  *   pollJob(jobId, (job) => setStatus(job.status), (job) => setDone(job))
  */
 export const pollJob = (jobId, onUpdate, onDone, intervalMs = 4000) => {
-  const timer = setInterval(async () => {
-    const { job } = await getJob(jobId);
-    if (!job) return;
-    onUpdate?.(job);
-    if (job.status === "done" || job.status === "error") {
-      clearInterval(timer);
-      onDone?.(job);
+  let stopped = false;
+  let timer;
+  const tick = async () => {
+    if (stopped) return;
+    try {
+      const { job } = await getJob(jobId);
+      if (!job || stopped) return;
+      onUpdate?.(job);
+      if (job.status === "done" || job.status === "error") {
+        stopped = true;
+        clearInterval(timer);
+        onDone?.(job);
+      }
+    } catch (err) {
+      // ek tick fail hone se poore polling ko mat rokna — silently agla tick try karega
+      console.warn("pollJob tick failed, retrying:", err.message);
     }
-  }, intervalMs);
-  return () => clearInterval(timer); // caller can cancel if component unmounts
+  };
+  tick(); // ← turant ek baar check karo, intervalMs ka wait mat karo (resume ke case mein zaroori)
+  timer = setInterval(tick, intervalMs);
+  return () => { stopped = true; clearInterval(timer); };
 };
 export const listDriveAttachments = () => callBackend("listDriveAttachments");
 

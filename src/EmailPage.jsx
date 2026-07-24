@@ -178,7 +178,10 @@ export default function EmailPage({ leads = [] }) {
 
   const [clearingAll, setClearingAll] = useState(false)
   const [deletingIds, setDeletingIds] = useState(new Set())
-
+const [gapMode, setGapMode] = useState("auto")      // "auto" | "manual"
+const [manualGapSec, setManualGapSec] = useState(60)
+const [autoMinSec, setAutoMinSec] = useState(15)
+const [autoMaxSec, setAutoMaxSec] = useState(240)
   // Retry wrapper — Apps Script backend ek time pe ek hi request reliably handle karta hai,
   // isliye parallel deletes (Promise.all) kabhi-kabhi fail ho jaate hain. Retry se ye fix hota hai.
   const deleteWithRetry = async (id, attempts = 3) => {
@@ -539,7 +542,9 @@ const [hoveredSender, setHoveredSender] = useState(null)
   const [tmVariantSubject, setTmVariantSubject] = useState("")
   const [tmVariantBody, setTmVariantBody] = useState("")
 const [selectedLogEntry, setSelectedLogEntry] = useState(null)
+const [sendSubmitting, setSendSubmitting] = useState(false);
   const tmAddIndustry = () => {
+
     const name = tmIndustryInput.trim()
     if (!name || templateLibrary[name]) return
     setTemplateLibrary(prev => ({ ...prev, [name]: {} }))
@@ -781,37 +786,48 @@ const startPolling = (jobId, total, batchId) => {
 
   useEffect(() => () => { if (pollRef.current) clearInterval(pollRef.current) }, [])
 
-  const sendAll = async () => {
-    if (!subjectOverride.trim() || !bodyOverride.trim()) {
-      showToast(
-        !subjectOverride.trim() && !bodyOverride.trim() ? "Subject aur Body dono khali hain — pehle bharo!"
-          : !subjectOverride.trim() ? "Subject khali hai — mail bhejne se pehle bharo!"
-          : "Body khali hai — mail bhejne se pehle bharo!",
-        "error"
-      )
-      return
-    }
-    if (senders.length === 0) { showToast("Add at least one sender email", "error"); return }
-    if (recipients.length === 0) { showToast("No recipients added", "error"); return }
-    if (dailySentCount + recipients.length > DAILY_LIMIT) { showToast(`Daily limit: ${DAILY_LIMIT}`, "error"); return }
+ const sendAll = async () => {
+  if (sendSubmitting) return; // extra safety — ek hi waqt mein dusra call turant reject
 
-   try {
-      const { jobId, batchId } = await api.startEmailSend({
-        subject: subjectOverride,
-        body: bodyOverride,
-        templates: templates.filter(t => t.subject && t.body).map(t => ({ subject: t.subject, body: t.body })),
-        rotateVariants,
-        recipients: recipients.map(r => ({ email: r.email, name: r.name, company: r.company, city: r.city, customLine: r.customLine })),
-        senders,
-        ccEmail: ccEmail.trim(),
-        attachments,
-      })
-      setSendJob({ jobId, status: "queued", index: 0, total: recipients.length })
-      showToast(`Batch queued — ${recipients.length} recipient${recipients.length !== 1 ? "s" : ""}`, "success")
-      startPolling(jobId, recipients.length, batchId)
-    } catch (err) { showApiError(err) }
+  if (!subjectOverride.trim() || !bodyOverride.trim()) {
+    showToast(
+      !subjectOverride.trim() && !bodyOverride.trim() ? "Subject aur Body dono khali hain — pehle bharo!"
+        : !subjectOverride.trim() ? "Subject khali hai — mail bhejne se pehle bharo!"
+        : "Body khali hai — mail bhejne se pehle bharo!",
+      "error"
+    );
+    return;
   }
+  if (senders.length === 0) { showToast("Add at least one sender email", "error"); return; }
+  if (recipients.length === 0) { showToast("No recipients added", "error"); return; }
+  if (dailySentCount + recipients.length > DAILY_LIMIT) { showToast(`Daily limit: ${DAILY_LIMIT}`, "error"); return; }
 
+  setSendSubmitting(true); // 👈 click hote hi turant set — await se pehle
+
+  try {
+    const { jobId, batchId } = await api.startEmailSend({
+      subject: subjectOverride,
+      body: bodyOverride,
+      templates: templates.filter(t => t.subject && t.body).map(t => ({ subject: t.subject, body: t.body })),
+      rotateVariants,
+      recipients: recipients.map(r => ({ email: r.email, name: r.name, company: r.company, city: r.city, customLine: r.customLine })),
+      senders,
+      ccEmail: ccEmail.trim(),
+      attachments,
+      gapMode,          // 👈 NEW
+      manualGapSec,     // 👈 NEW
+      autoMinSec,       // 👈 NEW
+      autoMaxSec,       // 👈 NEW
+    });
+    setSendJob({ jobId, status: "queued", index: 0, total: recipients.length });
+    showToast(`Batch queued — ${recipients.length} recipient${recipients.length !== 1 ? "s" : ""}`, "success");
+    startPolling(jobId, recipients.length, batchId);
+  } catch (err) {
+    showApiError(err);
+  } finally {
+    setSendSubmitting(false); // 👈 chahe success ho ya fail, flag clear karo
+  }
+};
   const handlePause = async () => {
     if (!sendJob) return
     try {
@@ -1295,6 +1311,49 @@ const healthColor = healthScore === null ? C.textMuted : healthScore >= 75 ? C.g
                 )}
               </div>
 
+              {/* 👇 NAYA BLOCK — Gap Between Emails */}
+              <div style={{ marginBottom: 14 }}>
+                <div style={{ fontSize: 11, color: C.textMuted, marginBottom: 8, textTransform: "uppercase", letterSpacing: 1 }}>
+                  Gap Between Emails
+                </div>
+                <div style={{ display: "flex", gap: 8, marginBottom: 10 }}>
+                  <button onClick={() => setGapMode("auto")} style={{
+                    padding: "6px 14px", borderRadius: 6, fontSize: 12, cursor: "pointer",
+                    border: `1px solid ${gapMode === "auto" ? C.accent : C.border2}`,
+                    background: gapMode === "auto" ? C.accentDim : "transparent",
+                    color: gapMode === "auto" ? C.accent : C.textMuted,
+                  }}>🎲 Automated (random)</button>
+                  <button onClick={() => setGapMode("manual")} style={{
+                    padding: "6px 14px", borderRadius: 6, fontSize: 12, cursor: "pointer",
+                    border: `1px solid ${gapMode === "manual" ? C.green : C.border2}`,
+                    background: gapMode === "manual" ? C.greenDim : "transparent",
+                    color: gapMode === "manual" ? C.green : C.textMuted,
+                  }}>✋ Manual (fixed)</button>
+                </div>
+
+                {gapMode === "auto" ? (
+                  <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+                    <span style={{ fontSize: 12, color: C.textMuted }}>Between</span>
+                    <input type="number" min="1" value={autoMinSec}
+                      onChange={e => setAutoMinSec(Math.max(1, parseInt(e.target.value) || 1))}
+                      style={{ width: 70, background: C.card, border: `1px solid ${C.border2}`, color: C.text, padding: "6px 8px", borderRadius: 6, fontSize: 12 }} />
+                    <span style={{ fontSize: 12, color: C.textMuted }}>and</span>
+                    <input type="number" min="1" value={autoMaxSec}
+                      onChange={e => setAutoMaxSec(Math.max(1, parseInt(e.target.value) || 1))}
+                      style={{ width: 70, background: C.card, border: `1px solid ${C.border2}`, color: C.text, padding: "6px 8px", borderRadius: 6, fontSize: 12 }} />
+                    <span style={{ fontSize: 12, color: C.textMuted }}>sec — random har mail ke beech</span>
+                  </div>
+                ) : (
+                  <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+                    <span style={{ fontSize: 12, color: C.textMuted }}>Fixed gap:</span>
+                    <input type="number" min="1" value={manualGapSec}
+                      onChange={e => setManualGapSec(Math.max(1, parseInt(e.target.value) || 1))}
+                      style={{ width: 90, background: C.card, border: `1px solid ${C.border2}`, color: C.text, padding: "6px 8px", borderRadius: 6, fontSize: 12 }} />
+                    <span style={{ fontSize: 12, color: C.textMuted }}>sec — har 2 mails ke beech same rahega</span>
+                  </div>
+                )}
+              </div>
+              {/* 👆 NAYA BLOCK END */}
               <div style={{ display: "flex", gap: 10, marginBottom: 14 }}>
                 <div style={{ flex: 1 }}>
                   <div style={{ fontSize: 11, color: C.textMuted, marginBottom: 4 }}>CC (every email)</div>
@@ -1332,15 +1391,16 @@ const healthColor = healthScore === null ? C.textMuted : healthScore >= 75 ? C.g
               )}
 
               <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
-                <button onClick={sendAll} disabled={sending || isPaused || recipients.length === 0 || senders.length === 0} style={{
-                  padding: "12px 28px", borderRadius: 8, border: "none",
-                  background: (sending || isPaused || recipients.length === 0 || senders.length === 0) ? C.border2 : C.accent,
-                  color: "#fff", fontWeight: 700, fontSize: 14, cursor: "pointer",
-                }}>
-                  {isPaused ? `⏸ Paused at ${sendJob.index}/${sendJob.total}`
-                    : sending ? `⏳ Sending ${sendJob.index}/${sendJob.total}...`
-                    : `🚀 Send to ${recipients.length} recipient${recipients.length !== 1 ? "s" : ""}`}
-                </button>
+                <button onClick={sendAll} disabled={sendSubmitting || sending || isPaused || recipients.length === 0 || senders.length === 0} style={{
+  padding: "12px 28px", borderRadius: 8, border: "none",
+  background: (sendSubmitting || sending || isPaused || recipients.length === 0 || senders.length === 0) ? C.border2 : C.accent,
+  color: "#fff", fontWeight: 700, fontSize: 14, cursor: "pointer",
+}}>
+  {sendSubmitting ? "⏳ Sending request..."
+    : isPaused ? `⏸ Paused at ${sendJob.index}/${sendJob.total}`
+    : sending ? `⏳ Sending ${sendJob.index}/${sendJob.total}...`
+    : `🚀 Send to ${recipients.length} recipient${recipients.length !== 1 ? "s" : ""}`}
+</button>
 
                 {sending && (
                   <button onClick={handlePause} style={{
