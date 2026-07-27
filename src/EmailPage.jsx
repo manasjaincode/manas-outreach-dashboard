@@ -182,6 +182,19 @@ const [gapMode, setGapMode] = useState("auto")      // "auto" | "manual"
 const [manualGapSec, setManualGapSec] = useState(60)
 const [autoMinSec, setAutoMinSec] = useState(15)
 const [autoMaxSec, setAutoMaxSec] = useState(240)
+const [scheduleMode, setScheduleMode] = useState("now") // "now" | "later"
+const [scheduledDateTime, setScheduledDateTime] = useState("")
+const MAX_SCHEDULE_HOURS = 72
+const scheduleValidation = (() => {
+  if (scheduleMode !== "later") return { ok: true }
+  if (!scheduledDateTime) return { ok: false, msg: "Date/time select karo" }
+  const target = new Date(scheduledDateTime)
+  const now = new Date()
+  if (target <= now) return { ok: false, msg: "Yeh time already beet chuka hai" }
+  const hoursAhead = (target - now) / (1000 * 60 * 60)
+  if (hoursAhead > MAX_SCHEDULE_HOURS) return { ok: false, msg: `Brevo sirf ${MAX_SCHEDULE_HOURS} ghante (3 din) tak aage schedule karta hai` }
+  return { ok: true }
+})()
   // Retry wrapper — Apps Script backend ek time pe ek hi request reliably handle karta hai,
   // isliye parallel deletes (Promise.all) kabhi-kabhi fail ho jaate hain. Retry se ye fix hota hai.
   const deleteWithRetry = async (id, attempts = 3) => {
@@ -798,9 +811,10 @@ const startPolling = (jobId, total, batchId) => {
     );
     return;
   }
-  if (senders.length === 0) { showToast("Add at least one sender email", "error"); return; }
+ if (senders.length === 0) { showToast("Add at least one sender email", "error"); return; }
   if (recipients.length === 0) { showToast("No recipients added", "error"); return; }
   if (dailySentCount + recipients.length > DAILY_LIMIT) { showToast(`Daily limit: ${DAILY_LIMIT}`, "error"); return; }
+  if (scheduleMode === "later" && !scheduleValidation.ok) { showToast(scheduleValidation.msg, "error"); return; }
 
   setSendSubmitting(true); // 👈 click hote hi turant set — await se pehle
 
@@ -814,13 +828,19 @@ const startPolling = (jobId, total, batchId) => {
       senders,
       ccEmail: ccEmail.trim(),
       attachments,
-      gapMode,          // 👈 NEW
-      manualGapSec,     // 👈 NEW
-      autoMinSec,       // 👈 NEW
-      autoMaxSec,       // 👈 NEW
+      gapMode,
+      manualGapSec,
+      autoMinSec,
+      autoMaxSec,
+      baseTimeIso: scheduleMode === "later" ? new Date(scheduledDateTime).toISOString() : undefined,
     });
     setSendJob({ jobId, status: "queued", index: 0, total: recipients.length });
-    showToast(`Batch queued — ${recipients.length} recipient${recipients.length !== 1 ? "s" : ""}`, "success");
+    showToast(
+      scheduleMode === "later"
+        ? `Batch scheduled for ${new Date(scheduledDateTime).toLocaleString()} — ${recipients.length} recipient${recipients.length !== 1 ? "s" : ""}`
+        : `Batch queued — ${recipients.length} recipient${recipients.length !== 1 ? "s" : ""}`,
+      "success"
+    );
     startPolling(jobId, recipients.length, batchId);
   } catch (err) {
     showApiError(err);
@@ -1311,7 +1331,40 @@ const healthColor = healthScore === null ? C.textMuted : healthScore >= 75 ? C.g
                 )}
               </div>
 
-              {/* 👇 NAYA BLOCK — Gap Between Emails */}
+           {/* 👇 NAYA BLOCK — When to send */}
+              <div style={{ marginBottom: 14 }}>
+                <div style={{ fontSize: 11, color: C.textMuted, marginBottom: 8, textTransform: "uppercase", letterSpacing: 1 }}>When to send</div>
+                <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+                  <button onClick={() => setScheduleMode("now")} style={{
+                    padding: "7px 14px", borderRadius: 7, fontSize: 12, cursor: "pointer",
+                    border: `1px solid ${scheduleMode === "now" ? C.accent : C.border2}`,
+                    background: scheduleMode === "now" ? C.accentDim : "transparent",
+                    color: scheduleMode === "now" ? C.accent : C.textMuted, fontWeight: scheduleMode === "now" ? 600 : 400,
+                  }}>🚀 Send Now</button>
+                  <button onClick={() => setScheduleMode("later")} style={{
+                    padding: "7px 14px", borderRadius: 7, fontSize: 12, cursor: "pointer",
+                    border: `1px solid ${scheduleMode === "later" ? C.accent : C.border2}`,
+                    background: scheduleMode === "later" ? C.accentDim : "transparent",
+                    color: scheduleMode === "later" ? C.accent : C.textMuted, fontWeight: scheduleMode === "later" ? 600 : 400,
+                  }}>🕓 Schedule for Later</button>
+                  {scheduleMode === "later" && (
+                    <input type="datetime-local" value={scheduledDateTime} onChange={e => setScheduledDateTime(e.target.value)}
+                      min={new Date(Date.now() + 5 * 60000).toISOString().slice(0, 16)}
+                      max={new Date(Date.now() + 71 * 60 * 60000).toISOString().slice(0, 16)}
+                      style={{ padding: "7px 10px", borderRadius: 7, border: `1px solid ${C.border2}`, fontSize: 12 }} />
+                  )}
+                </div>
+                {scheduleMode === "later" && !scheduleValidation.ok && (
+                  <div style={{ fontSize: 11, color: C.red, marginTop: 6 }}>⚠️ {scheduleValidation.msg}</div>
+                )}
+                {scheduleMode === "later" && scheduleValidation.ok && scheduledDateTime && (
+                  <div style={{ fontSize: 11, color: C.green, marginTop: 6 }}>✅ Recipients {new Date(scheduledDateTime).toLocaleString()} ke aas-paas jaayenge (gap-setting ke saath stagger hoke)</div>
+                )}
+                <div style={{ fontSize: 10, color: C.textDim, marginTop: 6 }}>
+                  ℹ️ Brevo sirf 72 ghante (3 din) tak aage schedule allow karta hai.
+                </div>
+              </div>
+
               <div style={{ marginBottom: 14 }}>
                 <div style={{ fontSize: 11, color: C.textMuted, marginBottom: 8, textTransform: "uppercase", letterSpacing: 1 }}>
                   Gap Between Emails
@@ -1391,14 +1444,15 @@ const healthColor = healthScore === null ? C.textMuted : healthScore >= 75 ? C.g
               )}
 
               <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
-                <button onClick={sendAll} disabled={sendSubmitting || sending || isPaused || recipients.length === 0 || senders.length === 0} style={{
+              <button onClick={sendAll} disabled={sendSubmitting || sending || isPaused || recipients.length === 0 || senders.length === 0 || (scheduleMode === "later" && !scheduleValidation.ok)} style={{
   padding: "12px 28px", borderRadius: 8, border: "none",
-  background: (sendSubmitting || sending || isPaused || recipients.length === 0 || senders.length === 0) ? C.border2 : C.accent,
+  background: (sendSubmitting || sending || isPaused || recipients.length === 0 || senders.length === 0 || (scheduleMode === "later" && !scheduleValidation.ok)) ? C.border2 : C.accent,
   color: "#fff", fontWeight: 700, fontSize: 14, cursor: "pointer",
 }}>
   {sendSubmitting ? "⏳ Sending request..."
     : isPaused ? `⏸ Paused at ${sendJob.index}/${sendJob.total}`
     : sending ? `⏳ Sending ${sendJob.index}/${sendJob.total}...`
+    : scheduleMode === "later" ? `🕓 Schedule ${recipients.length} recipient${recipients.length !== 1 ? "s" : ""}`
     : `🚀 Send to ${recipients.length} recipient${recipients.length !== 1 ? "s" : ""}`}
 </button>
 

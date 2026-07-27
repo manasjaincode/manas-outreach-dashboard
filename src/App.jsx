@@ -931,6 +931,19 @@ function TotalLeadsPage() {
   const [allLeads, setAllLeads] = useState([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState("");
+  const exportLeadsCSV = (rows, filenameSuffix) => {
+  if (!rows.length) return;
+  const headers = ["Business Name","Category","City/Pincode","Best Email","Phone","Website","Company Insights","Rating","Search Job ID","Created At"];
+  const csvRows = rows.map(l => [
+    l.name || "", l.category || "", l.city || "", l.email || "", l.phone || "",
+    l.website || "", (l.points || []).join(" | "), l.rating || "", l.searchJobId || "", l.createdAt || "",
+  ].map(v => `"${String(v).replace(/"/g, '""')}"`).join(","));
+  const blob = new Blob([[headers.join(","), ...csvRows].join("\n")], { type: "text/csv" });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = `total-leads-${filenameSuffix}-${new Date().toISOString().slice(0,10)}.csv`;
+  a.click();
+};
   const [error, setError] = useState(null);
 
   useEffect(() => {
@@ -944,6 +957,8 @@ function TotalLeadsPage() {
         const normalized = (leads || []).map(l => ({
           ...l,
           allEmails: typeof l.allEmails === "string" ? l.allEmails.split("; ").filter(Boolean) : (l.allEmails || []),
+          points: typeof l.points === "string" ? l.points.split(" | ").filter(Boolean) : (l.points || []), // 👈 NAYI LINE
+
         }));
         setAllLeads(normalized);
       } catch (err) {
@@ -1009,10 +1024,18 @@ const highlight = (text) => {
       )}
 
       <div style={{ background:COLORS.card,border:`1px solid ${COLORS.border}`,borderRadius:12,overflow:"hidden" }}>
-        <div style={{ padding:"12px 16px",borderBottom:`1px solid ${COLORS.border}`,display:"flex",alignItems:"center",justifyContent:"space-between" }}>
-          <input style={{ ...iS,width:260,padding:"7px 12px" }} value={filter} onChange={e=>setFilter(e.target.value)} placeholder="Naam, city, category ya email se search karo..." />
-          <span style={{ fontSize:12,color:COLORS.textMuted }}>{filtered.length} / {allLeads.length} leads</span>
-        </div>
+        <div style={{ padding:"12px 16px",borderBottom:`1px solid ${COLORS.border}`,display:"flex",alignItems:"center",justifyContent:"space-between",gap:12,flexWrap:"wrap" }}>
+  <input style={{ ...iS,width:260,padding:"7px 12px" }} value={filter} onChange={e=>setFilter(e.target.value)} placeholder="Naam, city, category ya email se search karo..." />
+  <div style={{ display:"flex",alignItems:"center",gap:10,flexWrap:"wrap" }}>
+    <span style={{ fontSize:12,color:COLORS.textMuted }}>{filtered.length} / {allLeads.length} leads</span>
+    <button onClick={()=>exportLeadsCSV(filtered, filter.trim() ? "filtered" : "all")} disabled={!filtered.length} style={{ padding:"7px 14px",background:"transparent",border:`1px solid ${COLORS.border}`,borderRadius:7,color:COLORS.textSecondary,fontSize:12,cursor:filtered.length?"pointer":"not-allowed",fontFamily:"inherit",opacity:filtered.length?1:0.5 }}>
+      📥 Export {filter.trim() ? `Filtered (${filtered.length})` : "Shown"}
+    </button>
+    <button onClick={()=>exportLeadsCSV(allLeads, "all")} disabled={!allLeads.length} style={{ padding:"7px 14px",background:COLORS.accentDim,border:`1px solid ${COLORS.accent}44`,borderRadius:7,color:COLORS.accent,fontSize:12,fontWeight:600,cursor:allLeads.length?"pointer":"not-allowed",fontFamily:"inherit",opacity:allLeads.length?1:0.5 }}>
+      📥 Export All ({allLeads.length})
+    </button>
+  </div>
+</div>
         <div style={{ overflowX:"auto",overflowY:"auto",maxHeight:"70vh" }}>
           <table style={{ borderCollapse:"collapse",fontSize:12,tableLayout:"fixed",width:"100%" }}>
             <thead>
@@ -1023,6 +1046,7 @@ const highlight = (text) => {
                 <th style={{ ...thS,minWidth:170 }}>Best email</th>
                 <th style={{ ...thS,minWidth:120 }}>Phone</th>
                 <th style={{ ...thS,minWidth:90 }}>Website</th>
+                <th style={{ ...thS,minWidth:280 }}>Company Insights</th>
                 <th style={{ ...thS,minWidth:70 }}>Rating</th>
                 <th style={{ ...thS,minWidth:140 }}>Search Job ID</th>
                 <th style={{ ...thS,minWidth:140 }}>Created At</th>
@@ -1037,6 +1061,7 @@ const highlight = (text) => {
                   <td style={{ ...tdS, color: l.email ? COLORS.green : COLORS.textMuted }}>{l.email ? highlight(l.email) : "—"}</td>
                   <td style={tdS}>{l.phone || "—"}</td>
                   <td style={tdS}>{l.website ? <a href={l.website} target="_blank" rel="noreferrer" style={{ color:COLORS.accent,textDecoration:"none" }}>Open ↗</a> : "—"}</td>
+                 <td style={{ ...tdS, fontSize: 11, whiteSpace: "pre-wrap" }}>{(l.points || []).join(" | ") || "—"}</td>
                   <td style={tdS}>{l.rating || "—"}</td>
                   <td style={{ ...tdS, fontSize:10, color:COLORS.textMuted }}>{l.searchJobId || "—"}</td>
                   <td style={{ ...tdS, fontSize:10, color:COLORS.textMuted }}>{l.createdAt || "—"}</td>
