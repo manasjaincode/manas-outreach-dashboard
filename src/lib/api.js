@@ -217,3 +217,7 @@ export const sendFollowUpNow = (payload) => callBackend("sendFollowUpNow", paylo
 export const listFollowUpTemplates = () => callBackend("listFollowUpTemplates");
 export const saveFollowUpTemplate = (template) => callBackend("saveFollowUpTemplate", template);
 export const deleteFollowUpTemplate = (id) => callBackend("deleteFollowUpTemplate", { id });
+export const listEmailJobs = () => callBackend("listEmailJobs");
+export const cancelEmailJob = (jobId) => callBackend("cancelEmailJob", { jobId });
+export const getEmailLogDetails = (messageId) => callBackend("getEmailLogDetails", { messageId });
+export const deleteEmailLog = (messageId) => callBackend("deleteEmailLog", { messageId });

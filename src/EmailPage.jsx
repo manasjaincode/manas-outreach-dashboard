@@ -349,9 +349,50 @@ const [addingRecipients, setAddingRecipients] = useState(false)
   const [recipientsModalFilter, setRecipientsModalFilter] = useState("")
 
   // ── Sending — job-based now, with server-side pause/resume ──
-  const [sendJob, setSendJob] = useState(null)
+const [sendJob, setSendJob] = useState(null)
   const pollRef = useRef(null)
   const [rotateVariants, setRotateVariants] = useState(true)
+
+  // ── Schedule tab — all email jobs, past/present/future ──
+  const [emailJobs, setEmailJobs] = useState([])
+  const [loadingEmailJobs, setLoadingEmailJobs] = useState(false)
+  const [jobActionId, setJobActionId] = useState(null)
+
+  const loadEmailJobs = async () => {
+    setLoadingEmailJobs(true)
+    try { const { jobs } = await api.listEmailJobs(); setEmailJobs(jobs) }
+    catch (err) { showApiError(err) }
+    setLoadingEmailJobs(false)
+  }
+  useEffect(() => { loadEmailJobs() }, [])
+
+  useEffect(() => {
+    const hasActive = emailJobs.some(j => j.status === "queued" || j.status === "running")
+    if (!hasActive) return
+    const t = setInterval(loadEmailJobs, 5000)
+    return () => clearInterval(t)
+  }, [emailJobs])
+
+  const handleJobPause = async (jobId) => {
+    setJobActionId(jobId)
+    try { await api.pauseJob(jobId); showToast("Pause requested", "success"); await loadEmailJobs() }
+    catch (err) { showApiError(err) }
+    setJobActionId(null)
+  }
+  const handleJobResume = async (jobId) => {
+    setJobActionId(jobId)
+    try { await api.resumeJob(jobId); showToast("Resumed", "success"); await loadEmailJobs() }
+    catch (err) { showApiError(err) }
+    setJobActionId(null)
+  }
+  const handleJobCancel = async (jobId) => {
+    const ok = await showConfirm("Is job ko cancel kar dein? Baaki recipients ko email nahi jaayega.")
+    if (!ok) return
+    setJobActionId(jobId)
+    try { await api.cancelEmailJob(jobId); showToast("Job cancelled", "success"); await loadEmailJobs() }
+    catch (err) { showApiError(err) }
+    setJobActionId(null)
+  }
 
 const [sentLog, setSentLog] = useState([])
   const loadSentLog = async () => {
@@ -521,6 +562,28 @@ const [sentLog, setSentLog] = useState([])
 
   const [previewRecipient, setPreviewRecipient] = useState(null)
 const [hoveredSender, setHoveredSender] = useState(null)
+const [logDetailsModal, setLogDetailsModal] = useState(null)
+
+const openLogDetails = async (messageId) => {
+  if (!messageId) { showToast("Is email ke liye Message ID nahi mila", "error"); return }
+  setLogDetailsModal({ loading: true, data: null, error: null })
+  try {
+    const { details } = await api.getEmailLogDetails(messageId)
+    setLogDetailsModal({ loading: false, data: details, error: null })
+  } catch (err) {
+    setLogDetailsModal({ loading: false, data: null, error: err.message })
+  }
+}
+
+const handleDeleteLog = async (messageId) => {
+  const ok = await showConfirm("Yeh log Brevo se delete kar dein? (24-48 ghante lagenge poora clear hone mein)")
+  if (!ok) return
+  try {
+    await api.deleteEmailLog(messageId)
+    showToast("Delete request bhej di gayi", "success")
+    setLogDetailsModal(null)
+  } catch (err) { showApiError(err) }
+}
   // ── AI Analysis (via backend Groq) ──
   const [aiAnalysis, setAiAnalysis] = useState(null)
   const [analyzingAi, setAnalyzingAi] = useState(false)
@@ -972,8 +1035,9 @@ const healthColor = healthScore === null ? C.textMuted : healthScore >= 75 ? C.g
 
       {/* Top nav */}
       <div style={{ borderBottom: `1px solid ${C.border}`, padding: "0 24px", display: "flex", alignItems: "center", gap: 4, background: C.surface }}>
-      {[
+     {[
           { id: "compose", label: "✍️ Compose & Send" },
+          { id: "schedule", label: `📅 Schedule (${emailJobs.filter(j => ["queued","running","paused"].includes(j.status)).length})` },
           { id: "templates", label: "📚 My Templates" },
           { id: "followups", label: `⏰ Follow-ups (${followUps.length})` },
           { id: "tracking", label: `👁 Per-Email Tracking` },
@@ -1498,6 +1562,73 @@ const healthColor = healthScore === null ? C.textMuted : healthScore >= 75 ? C.g
               )}
             </div>
           </div>
+      </div>
+      )}
+
+      {/* ── SCHEDULE ── */}
+      {activeView === "schedule" && (
+        <div style={{ padding: 24 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
+            <h2 style={{ margin: 0, fontWeight: 700, fontSize: 20 }}>Scheduled & Running Sends</h2>
+            <button onClick={loadEmailJobs} disabled={loadingEmailJobs} style={{ padding: "8px 16px", borderRadius: 7, border: `1px solid ${C.border2}`, background: C.card, color: C.text, cursor: "pointer", fontSize: 12 }}>
+              {loadingEmailJobs ? "..." : "🔄 Refresh"}
+            </button>
+          </div>
+
+          {emailJobs.length === 0 ? (
+            <div style={{ color: C.textMuted, textAlign: "center", padding: 60 }}>
+              {loadingEmailJobs ? "Loading..." : "Koi batch send/scheduled nahi hai abhi."}
+            </div>
+          ) : (
+            <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+              {emailJobs.map((job) => {
+                const statusColor = job.status === "done" ? C.green : job.status === "error" ? C.red
+                  : job.status === "paused" || job.status === "pause_requested" ? C.yellow
+                  : job.status === "cancelled" ? C.textMuted : C.accent
+                const pct = job.total > 0 ? Math.min(100, Math.round((job.sent / job.total) * 100)) : 0
+                const busy = jobActionId === job.id
+                const canPause = job.status === "queued" || job.status === "running"
+                const canResume = job.status === "paused"
+                const canCancel = ["queued", "running", "paused", "pause_requested"].includes(job.status)
+                return (
+                  <div key={job.id} style={{ background: C.card, border: `1px solid ${C.border2}`, borderRadius: 10, padding: "14px 18px" }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: 10 }}>
+                      <div>
+                        <div style={{ fontWeight: 700, fontSize: 14 }}>{job.subject || "(no subject)"}</div>
+                        <div style={{ fontSize: 11, color: C.textMuted, marginTop: 2 }}>
+                          Batch: {job.batchId} · {job.sent}/{job.total} sent · by {job.createdBy}
+                        </div>
+                        <div style={{ fontSize: 11, color: C.textDim, marginTop: 2 }}>
+                          Gap: {job.gapMode === "manual" ? `fixed ${job.manualGapSec}s` : `random ${job.autoMinSec}-${job.autoMaxSec}s`}
+                          {" · "}Started: {job.createdAt ? new Date(job.createdAt).toLocaleString() : "—"}
+                        </div>
+                        {job.resultSummary && <div style={{ fontSize: 11, color: C.textMuted, marginTop: 2 }}>{job.resultSummary}</div>}
+                      </div>
+                      <span style={{ fontSize: 10, padding: "3px 8px", borderRadius: 5, background: statusColor + "20", color: statusColor, fontWeight: 700, textTransform: "uppercase" }}>{job.status}</span>
+                    </div>
+
+                    <div style={{ marginTop: 10, background: C.border, borderRadius: 6, height: 8, overflow: "hidden" }}>
+                      <div style={{ width: `${pct}%`, height: "100%", background: statusColor, borderRadius: 6, transition: "width 0.4s ease" }} />
+                    </div>
+
+                    <div style={{ marginTop: 12, display: "flex", gap: 8, flexWrap: "wrap" }}>
+                      {canPause && (
+                        <button onClick={() => handleJobPause(job.id)} disabled={busy} style={{ fontSize: 11, padding: "6px 12px", borderRadius: 6, border: `1px solid ${C.yellow}44`, background: C.yellowDim, color: C.yellow, cursor: busy ? "not-allowed" : "pointer" }}>⏸ Pause</button>
+                      )}
+                      {canResume && (
+                        <button onClick={() => handleJobResume(job.id)} disabled={busy} style={{ fontSize: 11, padding: "6px 12px", borderRadius: 6, border: "none", background: C.green, color: "#fff", cursor: busy ? "not-allowed" : "pointer" }}>▶ Resume</button>
+                      )}
+                      {canCancel && (
+                        <button onClick={() => handleJobCancel(job.id)} disabled={busy} style={{ fontSize: 11, padding: "6px 12px", borderRadius: 6, border: `1px solid ${C.redDim}`, background: "transparent", color: C.red, cursor: busy ? "not-allowed" : "pointer", marginLeft: "auto" }}>
+                          {busy ? <Spinner size={10} color={C.red} /> : "🗑 Cancel"}
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          )}
         </div>
       )}
 
@@ -1662,6 +1793,7 @@ const healthColor = healthScore === null ? C.textMuted : healthScore >= 75 ? C.g
                           {isBounced && <span style={{ fontSize: 11, padding: "3px 8px", borderRadius: 5, background: C.yellowDim, color: C.yellow, fontWeight: 700 }}>BOUNCED</span>}
                           {opens.length > 0 && <span style={{ fontSize: 11, padding: "3px 8px", borderRadius: 5, background: C.accentDim, color: C.accent, fontWeight: 700 }}>👁 {opens.length}x opened</span>}
                           {clicks.length > 0 && <span style={{ fontSize: 11, padding: "3px 8px", borderRadius: 5, background: C.cyanDim, color: C.cyan, fontWeight: 700 }}>🖱 {clicks.length}x clicked</span>}
+                        <button onClick={() => openLogDetails(sentMeta?.messageId)} style={{ fontSize: 11, padding: "3px 8px", borderRadius: 4, border: `1px solid ${C.border2}`, background: "transparent", color: C.textMuted, cursor: "pointer" }}>👁</button>
                         </div>
                       </div>
                       <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
@@ -2328,7 +2460,76 @@ const healthColor = healthScore === null ? C.textMuted : healthScore >= 75 ? C.g
           </>
         )
       })()}
+{logDetailsModal && (
+        <>
+          <div onClick={() => setLogDetailsModal(null)} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.75)", zIndex: 1000, backdropFilter: "blur(4px)" }} />
+          <div style={{
+            position: "fixed", top: "50%", left: "50%", transform: "translate(-50%, -50%)",
+            width: "min(900px, 94vw)", maxHeight: "88vh", background: C.surface,
+            border: `1px solid ${C.border2}`, borderRadius: 16, zIndex: 1001,
+            display: "flex", flexDirection: "column", boxShadow: "0 32px 96px rgba(0,0,0,0.6)", overflow: "hidden",
+          }}>
+            <div style={{ padding: "16px 24px", borderBottom: `1px solid ${C.border}`, display: "flex", justifyContent: "space-between", alignItems: "center", background: C.card }}>
+              <div style={{ fontWeight: 700, fontSize: 16 }}>{logDetailsModal.data?.subject || "Email Log"}</div>
+              <button onClick={() => setLogDetailsModal(null)} style={{ width: 32, height: 32, borderRadius: "50%", background: C.border2, border: "none", color: C.text, cursor: "pointer", fontSize: 16 }}>✕</button>
+            </div>
 
+            {logDetailsModal.loading ? (
+              <div style={{ padding: 60, textAlign: "center", color: C.textMuted }}><Spinner size={20} color={C.accent} /> Loading...</div>
+            ) : logDetailsModal.error ? (
+              <div style={{ padding: 24, color: C.red }}>{logDetailsModal.error}</div>
+            ) : (
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 0, flex: 1, overflow: "hidden" }}>
+                {/* Details */}
+                <div style={{ padding: 20, borderRight: `1px solid ${C.border}`, overflowY: "auto" }}>
+                  <div style={{ fontSize: 11, color: C.textMuted, textTransform: "uppercase", marginBottom: 4 }}>Sent on</div>
+                  <div style={{ fontSize: 13, marginBottom: 14 }}>{logDetailsModal.data.sentAt ? new Date(logDetailsModal.data.sentAt).toLocaleString() : "—"}</div>
+
+                  <div style={{ fontSize: 11, color: C.textMuted, textTransform: "uppercase", marginBottom: 4 }}>Sender (From)</div>
+                  <div style={{ fontSize: 13, marginBottom: 14 }}>{logDetailsModal.data.from || "—"}</div>
+
+                  <div style={{ fontSize: 11, color: C.textMuted, textTransform: "uppercase", marginBottom: 4 }}>Reply-to</div>
+                  <div style={{ fontSize: 13, marginBottom: 14 }}>{logDetailsModal.data.replyTo || "—"}</div>
+
+                  <div style={{ fontSize: 11, color: C.textMuted, textTransform: "uppercase", marginBottom: 4 }}>Recipient (To)</div>
+                  <div style={{ fontSize: 13, marginBottom: 14 }}>{logDetailsModal.data.to || "—"}</div>
+
+                  <div style={{ fontSize: 11, color: C.textMuted, textTransform: "uppercase", marginBottom: 4 }}>Message ID</div>
+                  <div style={{ fontSize: 11, color: C.textDim, marginBottom: 14, wordBreak: "break-all" }}>{logDetailsModal.data.messageId}</div>
+
+                  {logDetailsModal.data.htmlContent ? (
+                    <div style={{ border: `1px solid ${C.border2}`, borderRadius: 8, padding: 14, maxHeight: 260, overflowY: "auto", background: "#fff" }}
+                      dangerouslySetInnerHTML={{ __html: logDetailsModal.data.htmlContent }} />
+                  ) : (
+                    <div style={{ fontSize: 12, color: C.textDim }}>Body preview available nahi hai is email ke liye.</div>
+                  )}
+                </div>
+
+                {/* History */}
+                <div style={{ padding: 20, overflowY: "auto" }}>
+                  <div style={{ fontSize: 11, color: C.textMuted, textTransform: "uppercase", marginBottom: 12 }}>History</div>
+                  {logDetailsModal.data.history.length === 0 ? (
+                    <div style={{ color: C.textDim, fontSize: 12 }}>Koi event nahi mila.</div>
+                  ) : logDetailsModal.data.history.map((h, i) => (
+                    <div key={i} style={{ display: "flex", flexDirection: "column", gap: 2, paddingBottom: 16, marginBottom: 16, borderLeft: `2px solid ${C.border2}`, paddingLeft: 16, position: "relative" }}>
+                      <div style={{ position: "absolute", left: -7, top: 0, width: 12, height: 12, borderRadius: "50%", background: C.accent }} />
+                      <div style={{ fontWeight: 700, fontSize: 13, textTransform: "capitalize" }}>{h.event}</div>
+                      {h.ip && <div style={{ fontSize: 11, color: C.textMuted }}>{h.ip}</div>}
+                      <div style={{ fontSize: 11, color: C.textDim }}>{new Date(h.date).toLocaleString()}</div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            <div style={{ padding: "14px 24px", borderTop: `1px solid ${C.border}`, background: C.card, display: "flex", justifyContent: "flex-end", gap: 10 }}>
+              {logDetailsModal.data && (
+                <button onClick={() => handleDeleteLog(logDetailsModal.data.messageId)} style={{ padding: "8px 16px", borderRadius: 7, border: `1px solid ${C.redDim}`, background: "transparent", color: C.red, fontSize: 13, cursor: "pointer" }}>🗑 Delete log</button>
+              )}
+            </div>
+          </div>
+        </>
+      )}
  {/* ── FOLLOW-UP SEND NOW MODAL ── */}
       {sendNowTarget && (
         <>
