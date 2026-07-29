@@ -18,25 +18,26 @@ L.Icon.Default.mergeOptions({
   shadowUrl: "https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png",
 });
 const COLORS = {
-  bg: "#FFFFFF",
-  surface: "#FFF7FA",
-  card: "#FFFFFF",
-  border: "#F1D9E5",
-  borderHover: "#FF9EC4",
-  accent: "#00BCD4",        // cyan — primary buttons/active states
-  accentDim: "#00BCD41A",
-  accentHover: "#00A5BD",
-  pink: "#FF5FA2",          // 👈 NEW — creative highlight color
-  pinkDim: "#FF5FA21A",
-  green: "#0DB88E",
-  greenDim: "#0DB88E15",
-  amber: "#F5A524",
-  amberDim: "#F5A52415",
-  red: "#EF4462",
-  redDim: "#EF446215",
-  text: "#1B1F27",
-  textSecondary: "#6B7280",
-  textMuted: "#AAB2BD",
+  bg: "#0A0A0C",           // near-black app background
+  surface: "#131316",      // sidebar / header background — ek shade lighter
+  card: "#1C1C20",         // cards — dark gray, black nahi (depth ke liye)
+  cardHover: "#232328",
+  border: "#2A2A30",       // subtle borders — bahut halka, glow nahi
+  borderHover: "#3A3A42",
+  accent: "#C6FF3D",       // signature lime-green — CTA aur active states
+  accentDim: "#C6FF3D14",
+  accentGlow: "#C6FF3D33",
+  pink: "#FF5FA2",
+  pinkDim: "#FF5FA214",
+  green: "#3DDC97",
+  greenDim: "#3DDC9714",
+  amber: "#FFB020",
+  amberDim: "#FFB02014",
+  red: "#FF5C72",
+  redDim: "#FF5C7214",
+  text: "#F2F2F5",         // primary text — off-white, pure white nahi
+  textSecondary: "#9B9BA5",
+  textMuted: "#5C5C66",
 };
 // ==================== FEEDBACK SYSTEM (toast + confirm modal) ====================
 // Native alert()/confirm() ki jagah — ek baar banaya, poori app mein use hoga.
@@ -154,103 +155,113 @@ export default function Dashboard() {
 function DashboardInner() {
   const [active, setActive] = useState("overview");
   const [hovered, setHovered] = useState(null);
+  const [transitioning, setTransitioning] = useState(false);
   const { showConfirm } = useFeedback();
+
+  // Smooth fade+slide when switching tabs — iPhone-jaisa feel
+  const changeTab = (id) => {
+    if (id === active) return;
+    setTransitioning(true);
+    setTimeout(() => { setActive(id); setTransitioning(false); }, 180);
+  };
+
   const handleLogout = async () => {
     const ok = await showConfirm("Log out karna hai?");
-    if (ok) {
-      logout();
-      window.location.reload();
-    }
+    if (ok) { logout(); window.location.reload(); }
   };
- return (
+
+  return (
     <AuthGate>
-    <div style={{ display: "flex", height: "100vh", background: COLORS.bg, fontFamily: "'Inter', 'SF Pro Display', system-ui, sans-serif", color: COLORS.text, overflow: "hidden" }}>
-      <aside style={{ width: 220, background: COLORS.surface, borderRight: `1px solid ${COLORS.border}`, display: "flex", flexDirection: "column", flexShrink: 0 }}>
-        <div style={{ padding: "24px 20px 20px", borderBottom: `1px solid ${COLORS.border}` }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 6 }}>
-<div style={{ width: 28, height: 28, background: `linear-gradient(135deg, ${COLORS.pink}, ${COLORS.accent})`, borderRadius: 6, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 14, fontWeight: 700, color: "#fff" }}>B</div>
-            <span style={{ fontSize: 13, fontWeight: 600 }}>Brain Inventory</span>
+      <div style={{ display: "flex", height: "100vh", background: COLORS.bg, fontFamily: "'Inter', 'SF Pro Display', system-ui, sans-serif", color: COLORS.text, overflow: "hidden" }}>
+
+        {/* Sidebar */}
+        <aside style={{ width: 220, background: COLORS.surface, borderRight: `1px solid ${COLORS.border}`, display: "flex", flexDirection: "column", flexShrink: 0 }}>
+          <div style={{ padding: "24px 20px 20px", borderBottom: `1px solid ${COLORS.border}` }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 6 }}>
+              <div style={{ width: 30, height: 30, background: COLORS.accent, borderRadius: 9, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 14, fontWeight: 800, color: "#0A0A0C", boxShadow: `0 0 20px ${COLORS.accentGlow}` }}>B</div>
+              <span style={{ fontSize: 13, fontWeight: 600, letterSpacing: "-0.2px" }}>Brain Inventory</span>
+            </div>
+            <p style={{ fontSize: 10, color: COLORS.textMuted, letterSpacing: "0.08em", textTransform: "uppercase" }}>Cold outreach suite</p>
           </div>
-          <p style={{ fontSize: 10, color: COLORS.textMuted, letterSpacing: "0.08em", textTransform: "uppercase" }}>Cold outreach suite</p>
-        </div> 
 
-        <nav style={{ flex: 1, padding: "12px 10px" }}>
-          {NAV_ITEMS.map(item => {
-            const isActive = active === item.id;
-            return (
-              <button key={item.id} onClick={() => setActive(item.id)}
-                onMouseEnter={() => setHovered(item.id)} onMouseLeave={() => setHovered(null)}
-                style={{
-                  display: "flex", alignItems: "center", gap: 10, width: "100%", padding: "9px 12px",
-                  borderRadius: 8, border: "none",
-background: isActive ? COLORS.accentDim : hovered === item.id ? COLORS.pinkDim : "transparent",
-                  color: isActive ? COLORS.accent : COLORS.textSecondary,
-                  fontSize: 13, fontWeight: isActive ? 500 : 400, cursor: "pointer", textAlign: "left",
-                  marginBottom: 2, transition: "all 0.15s ease",
-                  borderLeft: isActive ? `2px solid ${COLORS.accent}` : "2px solid transparent",
-                }}>
-                <span style={{ fontSize: 14 }}>{item.icon}</span>
-                {item.label}
-                {["leads", "proposals"].includes(item.id) && (
-                  <span style={{
-                    marginLeft: "auto", fontSize: 9, padding: "1px 6px", borderRadius: 10, fontWeight: 600,
-                    background: COLORS.accent,
-                    color: "#fff",
-                  }}>NEW</span>
-                )}
-              </button>
-            );
-          })}
-        </nav>
+          <nav style={{ flex: 1, padding: "14px 10px" }}>
+            {NAV_ITEMS.map(item => {
+              const isActive = active === item.id;
+              return (
+                <button key={item.id} onClick={() => changeTab(item.id)}
+                  onMouseEnter={() => setHovered(item.id)} onMouseLeave={() => setHovered(null)}
+                  style={{
+                    position: "relative", display: "flex", alignItems: "center", gap: 10,
+                    width: "100%", padding: "10px 12px", borderRadius: 12, border: "none",
+                    background: isActive ? COLORS.accentDim : hovered === item.id ? COLORS.card : "transparent",
+                    color: isActive ? COLORS.accent : COLORS.textSecondary,
+                    fontSize: 13, fontWeight: isActive ? 600 : 400, cursor: "pointer", textAlign: "left",
+                    marginBottom: 3, transition: "all 0.25s cubic-bezier(0.4,0,0.2,1)", fontFamily: "inherit",
+                  }}>
+                  {isActive && (
+                    <span style={{ position: "absolute", left: -10, top: "20%", bottom: "20%", width: 3, borderRadius: 3, background: COLORS.accent, boxShadow: `0 0 8px ${COLORS.accent}` }} />
+                  )}
+                  <span style={{ fontSize: 14 }}>{item.icon}</span>
+                  {item.label}
+                  {["leads", "proposals"].includes(item.id) && (
+                    <span style={{ marginLeft: "auto", fontSize: 9, padding: "1px 6px", borderRadius: 20, fontWeight: 700, background: COLORS.accent, color: "#0A0A0C" }}>NEW</span>
+                  )}
+                </button>
+              );
+            })}
+          </nav>
 
-     <div style={{ padding: "16px 20px", borderTop: `1px solid ${COLORS.border}` }}>
-  <p style={{ fontSize: 10, color: COLORS.textMuted, lineHeight: 1.6 }}>Built for Brain Inventory</p>
-  <p style={{ fontSize: 10, color: COLORS.textMuted, marginBottom: 10 }}>by <span style={{ color: COLORS.accent }}>Manas Jain</span></p>
-  <button onClick={handleLogout} style={{
-    display: "flex", alignItems: "center", gap: 6, width: "100%",
-    padding: "7px 10px", borderRadius: 7, border: `1px solid ${COLORS.border}`,
-    background: "transparent", color: COLORS.textSecondary, fontSize: 12,
-    cursor: "pointer", fontFamily: "inherit", transition: "all 0.15s ease",
-  }}
-    onMouseEnter={e => { e.currentTarget.style.background = COLORS.redDim; e.currentTarget.style.color = COLORS.red; e.currentTarget.style.borderColor = COLORS.red + "44"; }}
-    onMouseLeave={e => { e.currentTarget.style.background = "transparent"; e.currentTarget.style.color = COLORS.textSecondary; e.currentTarget.style.borderColor = COLORS.border; }}
-  >
-    ⏻ Log out
-  </button>
-</div>
-      </aside>
-
-      <main style={{ flex: 1, overflow: "auto", display: "flex", flexDirection: "column" }}>
-        <header style={{ padding: "18px 32px", borderBottom: `1px solid ${COLORS.border}`, display: "flex", alignItems: "center", justifyContent: "space-between", background: COLORS.surface, flexShrink: 0 }}>
-          <div>
-            <h1 style={{ fontSize: 18, fontWeight: 600, letterSpacing: "-0.4px", margin: 0 }}>
-              {NAV_ITEMS.find(n => n.id === active)?.label}
-            </h1>
-            <p style={{ fontSize: 12, color: COLORS.textSecondary, margin: "3px 0 0" }}>
-              {active === "overview" && "Real-time performance across your outreach campaigns"}
-              {active === "leads" && "Scrape targeted leads from Google Maps"}
-              {active === "email" && "Compose, send and track cold emails via Brevo"}
-                            {active === "totalLeads" && "Poori lead history — sab search se aaye leads ek jagah"}
-              {active === "proposals" && "Generate psychology-driven proposals for client job posts"}
-            </p>
+          <div style={{ padding: "16px 20px", borderTop: `1px solid ${COLORS.border}` }}>
+            <p style={{ fontSize: 10, color: COLORS.textMuted, lineHeight: 1.6 }}>Built for Brain Inventory</p>
+            <p style={{ fontSize: 10, color: COLORS.textMuted, marginBottom: 10 }}>by <span style={{ color: COLORS.accent }}>Manas Jain</span></p>
+            <button onClick={handleLogout} style={{
+              display: "flex", alignItems: "center", gap: 6, width: "100%",
+              padding: "8px 10px", borderRadius: 10, border: `1px solid ${COLORS.border}`,
+              background: "transparent", color: COLORS.textSecondary, fontSize: 12,
+              cursor: "pointer", fontFamily: "inherit", transition: "all 0.2s ease",
+            }}
+              onMouseEnter={e => { e.currentTarget.style.background = COLORS.redDim; e.currentTarget.style.color = COLORS.red; e.currentTarget.style.borderColor = COLORS.red + "44"; }}
+              onMouseLeave={e => { e.currentTarget.style.background = "transparent"; e.currentTarget.style.color = COLORS.textSecondary; e.currentTarget.style.borderColor = COLORS.border; }}
+            >⏻ Log out</button>
           </div>
-          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-            <div style={{ width: 8, height: 8, borderRadius: "50%", background: COLORS.green, boxShadow: `0 0 6px ${COLORS.green}` }} />
-            <span style={{ fontSize: 12, color: COLORS.textSecondary }}>System ready</span>
+        </aside>
+
+        {/* Main */}
+        <main style={{ flex: 1, overflow: "auto", display: "flex", flexDirection: "column" }}>
+          <header style={{ padding: "18px 32px", borderBottom: `1px solid ${COLORS.border}`, display: "flex", alignItems: "center", justifyContent: "space-between", background: COLORS.surface, flexShrink: 0 }}>
+            <div>
+              <h1 style={{ fontSize: 18, fontWeight: 700, letterSpacing: "-0.4px", margin: 0 }}>{NAV_ITEMS.find(n => n.id === active)?.label}</h1>
+              <p style={{ fontSize: 12, color: COLORS.textSecondary, margin: "3px 0 0" }}>
+                {active === "overview" && "Real-time performance across your outreach campaigns"}
+                {active === "leads" && "Scrape targeted leads from Google Maps"}
+                {active === "email" && "Compose, send and track cold emails via Brevo"}
+                {active === "totalLeads" && "Poori lead history — sab search se aaye leads ek jagah"}
+                {active === "proposals" && "Generate psychology-driven proposals for client job posts"}
+              </p>
+            </div>
+            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+              <div style={{ width: 8, height: 8, borderRadius: "50%", background: COLORS.accent, boxShadow: `0 0 8px ${COLORS.accent}` }} />
+              <span style={{ fontSize: 12, color: COLORS.textSecondary }}>System ready</span>
+            </div>
+          </header>
+
+          {/* Content — fade+slide transition on tab change */}
+          <div style={{
+            flex: 1, padding: "28px 32px",
+            opacity: transitioning ? 0 : 1,
+            transform: transitioning ? "translateY(6px)" : "translateY(0)",
+            transition: "opacity 0.18s ease, transform 0.18s ease",
+          }}>
+            {active === "overview" && <OverviewPage setActive={changeTab} />}
+            {active === "leads" && <LeadsPage />}
+            {active === "totalLeads" && <TotalLeadsPage />}
+            {active === "email" && <EmailPage leads={[]} />}
+            {active === "proposals" && <ProposalGenerator />}
+            {active === "admin" && <AdminPanel />}
           </div>
-        </header>
-
-        <div style={{ flex: 1, padding: "28px 32px" }}>
-          {active === "overview"  && <OverviewPage setActive={setActive} />}
-          {active === "leads"     && <LeadsPage />}
-          {active === "totalLeads" && <TotalLeadsPage />}
-
-{active === "email"     && <EmailPage leads={[]} />}
-{active === "proposals" && <ProposalGenerator />}
-        {active === "admin" && <AdminPanel />} 
-        </div>
-      </main>
-    </div>  </AuthGate>
+        </main>
+      </div>
+    </AuthGate>
   );
 }
 
@@ -258,121 +269,104 @@ background: isActive ? COLORS.accentDim : hovered === item.id ? COLORS.pinkDim :
 
 function OverviewPage({ setActive }) {
   const [hoveredCard, setHoveredCard] = useState(null);
-
-  const userName = "Manas";
-  const initials = "MJ";
+  const userName = currentUser?.name || currentUser?.username || "there";
+  const initials = userName.trim().split(/\s+/).slice(0,2).map(w=>w[0]?.toUpperCase()||"").join("") || "U";
   const today = new Date().toLocaleDateString("en-IN", { weekday: "long", day: "numeric", month: "long" });
 
   const funnelStages = [
     { label: "Leads scraped", value: 0, icon: "◈", color: COLORS.accent },
-    { label: "Enriched",      value: 0, icon: "✦", color: COLORS.pink   },
-    { label: "Emails sent",   value: 0, icon: "✉", color: COLORS.green  },
-    { label: "Replies",       value: 0, icon: "↩", color: COLORS.amber  },
+    { label: "Enriched", value: 0, icon: "✦", color: COLORS.pink },
+    { label: "Emails sent", value: 0, icon: "✉", color: COLORS.green },
+    { label: "Replies", value: 0, icon: "↩", color: COLORS.amber },
   ];
-
   const integrations = [
-    { label: "Google Maps API",            status: "Connected",     live: true  },
-    { label: "Website + email enrichment", status: "Active",        live: true  },
-    { label: "Brevo SMTP",                 status: "Not connected", live: false },
+    { label: "Google Maps API", status: "Connected", live: true },
+    { label: "Website + email enrichment", status: "Active", live: true },
+    { label: "Brevo SMTP", status: "Not connected", live: false },
   ];
-
   const eyebrow = { fontSize: 11, color: COLORS.textMuted, letterSpacing: "0.1em", textTransform: "uppercase", marginBottom: 14 };
+  const STAT_CARDS_DARK = [
+    { label: "Total leads", value: "0", sub: "across all campaigns", color: COLORS.accent },
+    { label: "Emails sent", value: "0", sub: "last 30 days", color: COLORS.green },
+    { label: "Open rate", value: "—", sub: "avg across campaigns", color: COLORS.amber },
+    { label: "Replies", value: "0", sub: "awaiting follow-up", color: COLORS.pink },
+  ];
 
   return (
     <div>
-      {/* Greeting */}
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 30 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
-          <div style={{
-            width: 46, height: 46, borderRadius: "50%",
-            background: `linear-gradient(135deg, ${COLORS.pink}, ${COLORS.accent})`,
-            display: "flex", alignItems: "center", justifyContent: "center",
-            color: "#fff", fontSize: 15, fontWeight: 700, letterSpacing: "-0.3px",
-            boxShadow: `0 6px 16px ${COLORS.accent}30`, flexShrink: 0,
-          }}>{initials}</div>
+          <div style={{ width: 46, height: 46, borderRadius: 16, background: COLORS.accent, display: "flex", alignItems: "center", justifyContent: "center", color: "#0A0A0C", fontSize: 16, fontWeight: 800, boxShadow: `0 8px 24px ${COLORS.accentGlow}`, flexShrink: 0 }}>{initials}</div>
           <div>
-            <h2 style={{ fontSize: 20, fontWeight: 600, margin: 0, letterSpacing: "-0.3px" }}>Heyy {userName} 👋</h2>
-            <p style={{ fontSize: 12.5, color: COLORS.textSecondary, margin: "3px 0 0" }}>
-              Here's how your outreach engine is performing.
-            </p>
+            <h2 style={{ fontSize: 20, fontWeight: 700, margin: 0, letterSpacing: "-0.3px" }}>Heyy {userName} 👋</h2>
+            <p style={{ fontSize: 12.5, color: COLORS.textSecondary, margin: "3px 0 0" }}>Here's how your outreach engine is performing.</p>
           </div>
         </div>
         <div style={{ textAlign: "right" }}>
           <div style={{ fontSize: 11, color: COLORS.textMuted, letterSpacing: "0.06em" }}>{today}</div>
           <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 4, justifyContent: "flex-end" }}>
-            <span style={{ width: 6, height: 6, borderRadius: "50%", background: COLORS.green, boxShadow: `0 0 6px ${COLORS.green}` }} />
+            <span style={{ width: 6, height: 6, borderRadius: "50%", background: COLORS.accent, boxShadow: `0 0 6px ${COLORS.accent}` }} />
             <span style={{ fontSize: 11, color: COLORS.textSecondary }}>All systems live</span>
           </div>
         </div>
       </div>
 
-      {/* KPI cards */}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 14, marginBottom: 28 }}>
-        {STAT_CARDS.map((card, i) => (
+        {STAT_CARDS_DARK.map((card, i) => (
           <div key={i} onMouseEnter={() => setHoveredCard(i)} onMouseLeave={() => setHoveredCard(null)}
             style={{
-              background: COLORS.card, border: `1px solid ${hoveredCard === i ? COLORS.borderHover : COLORS.border}`,
-              borderRadius: 12, padding: "18px 20px", transition: "border-color 0.15s ease, transform 0.15s ease",
-              transform: hoveredCard === i ? "translateY(-2px)" : "none",
+              background: COLORS.card, border: `1px solid ${hoveredCard === i ? card.color + "55" : COLORS.border}`,
+              borderRadius: 18, padding: "20px 22px", transition: "all 0.25s cubic-bezier(0.4,0,0.2,1)",
+              transform: hoveredCard === i ? "translateY(-3px)" : "none",
+              boxShadow: hoveredCard === i ? `0 12px 32px rgba(0,0,0,0.4)` : "none",
             }}>
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 14 }}>
-              <div style={{ width: 6, height: 6, borderRadius: "50%", background: card.color, boxShadow: `0 0 8px ${card.color}` }} />
-              <span style={{ fontSize: 10, color: COLORS.textMuted, background: COLORS.surface, padding: "2px 7px", borderRadius: 20 }}>No data yet</span>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16 }}>
+              <div style={{ width: 8, height: 8, borderRadius: "50%", background: card.color, boxShadow: `0 0 10px ${card.color}` }} />
+              <span style={{ fontSize: 10, color: COLORS.textMuted, background: COLORS.bg, padding: "3px 8px", borderRadius: 20 }}>No data yet</span>
             </div>
-            <div style={{ fontSize: 28, fontWeight: 600, letterSpacing: "-0.8px" }}>{card.value}</div>
+            <div style={{ fontSize: 30, fontWeight: 700, letterSpacing: "-0.8px" }}>{card.value}</div>
             <div style={{ fontSize: 12, color: COLORS.textSecondary, marginTop: 4 }}>{card.label}</div>
             <div style={{ fontSize: 11, color: COLORS.textMuted, marginTop: 2 }}>{card.sub}</div>
           </div>
         ))}
       </div>
 
-      {/* Outreach funnel — signature element, mirrors the product's real pipeline */}
       <p style={eyebrow}>Outreach funnel</p>
-      <div style={{ background: COLORS.card, border: `1px solid ${COLORS.border}`, borderRadius: 12, padding: "24px 28px", marginBottom: 28 }}>
+      <div style={{ background: COLORS.card, border: `1px solid ${COLORS.border}`, borderRadius: 20, padding: "26px 28px", marginBottom: 28 }}>
         <div style={{ display: "flex", alignItems: "center" }}>
           {funnelStages.map((stage, i) => (
             <div key={i} style={{ display: "flex", alignItems: "center", flex: i < funnelStages.length - 1 ? 1 : "none" }}>
               <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 8, minWidth: 90 }}>
-                <div style={{
-                  width: 40, height: 40, borderRadius: "50%", background: stage.color + "15",
-                  border: `1.5px solid ${stage.color}44`, display: "flex", alignItems: "center", justifyContent: "center",
-                  fontSize: 16, color: stage.color,
-                }}>{stage.icon}</div>
-                <div style={{ fontSize: 18, fontWeight: 600 }}>{stage.value}</div>
+                <div style={{ width: 42, height: 42, borderRadius: 14, background: stage.color + "18", border: `1px solid ${stage.color}55`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 16, color: stage.color }}>{stage.icon}</div>
+                <div style={{ fontSize: 18, fontWeight: 700 }}>{stage.value}</div>
                 <div style={{ fontSize: 11, color: COLORS.textMuted, textAlign: "center", whiteSpace: "nowrap" }}>{stage.label}</div>
               </div>
-              {i < funnelStages.length - 1 && (
-                <div style={{ flex: 1, height: 1, background: COLORS.border, margin: "0 6px 26px" }} />
-              )}
+              {i < funnelStages.length - 1 && <div style={{ flex: 1, height: 1, background: COLORS.border, margin: "0 6px 26px" }} />}
             </div>
           ))}
         </div>
-        <p style={{ fontSize: 11.5, color: COLORS.textMuted, textAlign: "center", marginTop: 18, marginBottom: 0 }}>
-          This fills in automatically as leads move from scraping → enrichment → email → reply.
-        </p>
+        <p style={{ fontSize: 11.5, color: COLORS.textMuted, textAlign: "center", marginTop: 18, marginBottom: 0 }}>This fills in automatically as leads move from scraping → enrichment → email → reply.</p>
       </div>
 
-      {/* Activity trend + system status */}
       <div style={{ display: "grid", gridTemplateColumns: "1.4fr 1fr", gap: 16 }}>
-        <div style={{ background: COLORS.card, border: `1px solid ${COLORS.border}`, borderRadius: 12, padding: "26px 28px", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", textAlign: "center", minHeight: 220 }}>
+        <div style={{ background: COLORS.card, border: `1px solid ${COLORS.border}`, borderRadius: 20, padding: "28px 30px", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", textAlign: "center", minHeight: 220 }}>
           <div style={{ fontSize: 32, marginBottom: 10, color: COLORS.textMuted }}>◎</div>
-          <p style={{ fontSize: 14, fontWeight: 500, margin: 0 }}>No campaign activity yet</p>
-          <p style={{ fontSize: 12, color: COLORS.textSecondary, margin: "6px 0 18px", maxWidth: 320 }}>
-            Once you scrape leads and send your first emails, activity trends will show up here.
-          </p>
+          <p style={{ fontSize: 14, fontWeight: 600, margin: 0 }}>No campaign activity yet</p>
+          <p style={{ fontSize: 12, color: COLORS.textSecondary, margin: "6px 0 18px", maxWidth: 320 }}>Once you scrape leads and send your first emails, activity trends will show up here.</p>
           <div style={{ display: "flex", gap: 10 }}>
-            <button onClick={() => setActive("leads")} style={{ padding: "8px 18px", background: COLORS.accent, border: "none", borderRadius: 8, color: "#fff", fontSize: 12.5, fontWeight: 600, cursor: "pointer", fontFamily: "inherit" }}>Scrape leads</button>
-            <button onClick={() => setActive("email")} style={{ padding: "8px 18px", background: "transparent", border: `1px solid ${COLORS.border}`, borderRadius: 8, color: COLORS.textSecondary, fontSize: 12.5, cursor: "pointer", fontFamily: "inherit" }}>Compose email</button>
+            <button onClick={() => setActive("leads")} style={{ padding: "9px 20px", background: COLORS.accent, border: "none", borderRadius: 12, color: "#0A0A0C", fontSize: 12.5, fontWeight: 700, cursor: "pointer", fontFamily: "inherit", transition: "transform 0.15s ease" }}
+              onMouseEnter={e=>e.currentTarget.style.transform="scale(1.03)"} onMouseLeave={e=>e.currentTarget.style.transform="scale(1)"}>Scrape leads</button>
+            <button onClick={() => setActive("email")} style={{ padding: "9px 20px", background: "transparent", border: `1px solid ${COLORS.border}`, borderRadius: 12, color: COLORS.textSecondary, fontSize: 12.5, cursor: "pointer", fontFamily: "inherit" }}>Compose email</button>
           </div>
         </div>
 
-        <div style={{ background: COLORS.card, border: `1px solid ${COLORS.border}`, borderRadius: 12, padding: "18px 22px" }}>
+        <div style={{ background: COLORS.card, border: `1px solid ${COLORS.border}`, borderRadius: 20, padding: "20px 24px" }}>
           <p style={{ ...eyebrow, marginBottom: 16 }}>System status</p>
           {integrations.map((item, i) => (
-            <div key={i} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "9px 0", borderBottom: i < integrations.length - 1 ? `1px solid ${COLORS.border}` : "none" }}>
+            <div key={i} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "10px 0", borderBottom: i < integrations.length - 1 ? `1px solid ${COLORS.border}` : "none" }}>
               <span style={{ fontSize: 12.5, color: COLORS.textSecondary }}>{item.label}</span>
-              <span style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 11.5, color: item.live ? COLORS.green : COLORS.textMuted }}>
-                <span style={{ width: 5, height: 5, borderRadius: "50%", background: item.live ? COLORS.green : COLORS.textMuted }} />
+              <span style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 11.5, color: item.live ? COLORS.accent : COLORS.textMuted }}>
+                <span style={{ width: 5, height: 5, borderRadius: "50%", background: item.live ? COLORS.accent : COLORS.textMuted }} />
                 {item.status}
               </span>
             </div>
