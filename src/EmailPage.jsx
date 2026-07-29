@@ -351,8 +351,235 @@ const [addingRecipients, setAddingRecipients] = useState(false)
   // ── Sending — job-based now, with server-side pause/resume ──
 const [sendJob, setSendJob] = useState(null)
   const pollRef = useRef(null)
-  const [rotateVariants, setRotateVariants] = useState(true)
+const [rotateVariants, setRotateVariants] = useState(true)
 
+  // ── Recipient Groups ──
+  const [groups, setGroups] = useState([])
+  const [loadingGroups, setLoadingGroups] = useState(false)
+  const [newGroupName, setNewGroupName] = useState("")
+  const [creatingGroup, setCreatingGroup] = useState(false)
+  const [selectedGroupId, setSelectedGroupId] = useState(null)
+  const [groupActionId, setGroupActionId] = useState(null)
+  const [renamingGroupId, setRenamingGroupId] = useState(null)
+  const [renameDraft, setRenameDraft] = useState("")
+  const [groupMemberFilter, setGroupMemberFilter] = useState("")
+  const [togglingMemberId, setTogglingMemberId] = useState(null)
+  const [sendToGroupId, setSendToGroupId] = useState("") // "" = all recipients
+
+  const loadGroups = async () => {
+    setLoadingGroups(true)
+    try { const { groups: rows } = await api.listGroups(); setGroups(rows) }
+    catch (err) { showApiError(err) }
+    setLoadingGroups(false)
+  }
+  useEffect(() => { loadGroups() }, [])
+  useEffect(() => { if (activeView === "groups") loadGroups() }, [activeView])
+
+  const handleCreateGroup = async () => {
+    if (!newGroupName.trim()) { showToast("Group ka naam likho pehle!", "error"); return }
+    setCreatingGroup(true)
+    try {
+      await api.createGroup(newGroupName.trim())
+      setNewGroupName("")
+      showToast("Group ban gaya!", "success")
+      await loadGroups()
+    } catch (err) { showApiError(err) }
+    setCreatingGroup(false)
+  }
+
+  const handleRenameGroup = async (id) => {
+    if (!renameDraft.trim()) { showToast("Naam khali nahi ho sakta!", "error"); return }
+    setGroupActionId(id)
+    try {
+      await api.renameGroup(id, renameDraft.trim())
+      setRenamingGroupId(null)
+      showToast("Naam update ho gaya!", "success")
+      await loadGroups()
+    } catch (err) { showApiError(err) }
+    setGroupActionId(null)
+  }
+
+  const handleDeleteGroup = async (id, name) => {
+    const ok = await showConfirm(`"${name}" group delete kar dein? Recipients delete nahi honge, bas group se hat jaayenge.`)
+    if (!ok) return
+    setGroupActionId(id)
+    try {
+      await api.deleteGroup(id)
+      if (selectedGroupId === id) setSelectedGroupId(null)
+      if (sendToGroupId === id) setSendToGroupId("")
+      showToast("Group delete ho gaya", "success")
+      await loadGroups()
+      await loadRecipients()
+    } catch (err) { showApiError(err) }
+    setGroupActionId(null)
+  }
+
+  const toggleGroupMember = async (recipient) => {
+    if (!selectedGroupId) return
+    setTogglingMemberId(recipient.id)
+    const isMember = (recipient.groupIds || []).includes(selectedGroupId)
+    try {
+      if (isMember) await api.removeRecipientsFromGroup(selectedGroupId, [recipient.id])
+      else await api.addRecipientsToGroup(selectedGroupId, [recipient.id])
+      setRecipients(prev => prev.map(r => r.id === recipient.id
+        ? { ...r, groupIds: isMember ? (r.groupIds || []).filter(g => g !== selectedGroupId) : [...(r.groupIds || []), selectedGroupId] }
+        : r))
+      await loadGroups()
+    } catch (err) { showApiError(err) }
+    setTogglingMemberId(null)
+  }
+  // ── Independent recipient-add inside Groups tab (no need to visit Compose) ──
+  const [groupRecipientMode, setGroupRecipientMode] = useState("bulk")
+  const [groupAddingRecipients, setGroupAddingRecipients] = useState(false)
+  const [groupAddEmailInput, setGroupAddEmailInput] = useState("")
+  const [groupAddNameInput, setGroupAddNameInput] = useState("")
+  const [groupAddCompanyInput, setGroupAddCompanyInput] = useState("")
+  const [groupAddCityInput, setGroupAddCityInput] = useState("")
+  const [groupBulkPasteText, setGroupBulkPasteText] = useState("")
+  const [groupCsvFileName, setGroupCsvFileName] = useState("")
+  const [groupCsvParsedRows, setGroupCsvParsedRows] = useState([])
+  const [groupShowCsvModal, setGroupShowCsvModal] = useState(false)
+  const [groupCsvModalFilter, setGroupCsvModalFilter] = useState("")
+  const groupCsvFileInputRef = useRef(null)
+
+  const addRecipientsToSelectedGroup = async (list) => {
+    if (!list.length || !selectedGroupId) return 0
+    setGroupAddingRecipients(true)
+    try {
+      const data = await api.addRecipients(list)
+      const newIds = (data.recipients || []).map(r => r.id)
+      if (newIds.length) await api.addRecipientsToGroup(selectedGroupId, newIds)
+      await loadRecipients()
+      await loadGroups()
+      return newIds.length
+    } catch (err) { showApiError(err); return 0 }
+    finally { setGroupAddingRecipients(false) }
+  }
+
+  const groupAddManualRecipient = async () => {
+    if (!groupAddEmailInput.trim()) { showToast("Email khali hai — bharo pehle!", "error"); return }
+    const count = await addRecipientsToSelectedGroup([{
+      email: groupAddEmailInput.trim(), name: groupAddNameInput.trim(), company: groupAddCompanyInput.trim(), city: groupAddCityInput.trim(),
+    }])
+    if (count) {
+      showToast("Recipient group mein add ho gaya!", "success")
+      setGroupAddEmailInput(""); setGroupAddNameInput(""); setGroupAddCompanyInput(""); setGroupAddCityInput("")
+    }
+  }
+
+  const groupHandleBulkAdd = async () => {
+    if (!groupBulkPasteText.trim()) return
+    const lines = groupBulkPasteText.split("\n").map(l => l.trim()).filter(Boolean)
+    const newOnes = []
+    for (const line of lines) {
+      const parts = line.split(/[,|\t]/).map(p => p.trim()).filter(Boolean)
+      const emailPart = parts.find(p => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(p))
+      if (!emailPart) continue
+      const rest = parts.filter(p => p !== emailPart)
+      newOnes.push({ email: emailPart, name: rest[0] || "", company: rest[1] || "", city: rest[2] || "" })
+    }
+    if (!newOnes.length) { showToast("Koi valid email nahi mila paste mein!", "error"); return }
+    const existing = new Set(recipients.map(r => r.email))
+    const filtered = newOnes.filter(r => !existing.has(r.email))
+    const count = await addRecipientsToSelectedGroup(filtered)
+    if (count) { setGroupBulkPasteText(""); showToast(`${count} recipient${count !== 1 ? "s" : ""} group mein add ho gaye!`, "success") }
+  }
+
+  const groupHandleCsvFile = (e) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    setGroupCsvFileName(file.name)
+    const reader = new FileReader()
+    reader.onload = (ev) => {
+      const text = String(ev.target.result || "")
+      const rows = parseCSV(text)
+      const mapped = mapCsvToRecipients(rows).map(r => ({ ...r, _selected: true }))
+      setGroupCsvParsedRows(mapped)
+      setGroupShowCsvModal(true)
+    }
+    reader.readAsText(file)
+    e.target.value = ""
+  }
+
+  const groupToggleCsvRow = (idx) => setGroupCsvParsedRows(prev => prev.map((r, i) => i === idx ? { ...r, _selected: !r._selected } : r))
+  const groupToggleCsvAll = (val) => setGroupCsvParsedRows(prev => prev.map(r => ({ ...r, _selected: val })))
+  const groupCsvSelectedCount = groupCsvParsedRows.filter(r => r._selected).length
+
+  const groupConfirmCsvImport = async () => {
+    const selected = groupCsvParsedRows.filter(r => r._selected)
+    const existing = new Set(recipients.map(r => r.email))
+    const newOnes = selected.filter(r => !existing.has(r.email)).map(({ _selected, ...rest }) => rest)
+    const count = await addRecipientsToSelectedGroup(newOnes)
+    setGroupShowCsvModal(false); setGroupCsvParsedRows([]); setGroupCsvModalFilter("")
+    if (count) showToast(`${count} recipient${count !== 1 ? "s" : ""} group mein import ho gaye!`, "success")
+  }
+
+  // ── Bulk Schedule — multiple groups, each at its own time, in one go ──
+  const [bulkRows, setBulkRows] = useState([]) // [{ id, groupId, dateTime }]
+  const [bulkSubmitting, setBulkSubmitting] = useState(false)
+  const [bulkResults, setBulkResults] = useState(null)
+
+  const addBulkRow = () => setBulkRows(prev => [...prev, { id: Date.now() + Math.random(), groupId: groups[0]?.id || "", dateTime: "" }])
+  const removeBulkRow = (id) => setBulkRows(prev => prev.filter(r => r.id !== id))
+  const updateBulkRow = (id, patch) => setBulkRows(prev => prev.map(r => r.id === id ? { ...r, ...patch } : r))
+
+  const bulkRowValidation = (row) => {
+    if (!row.groupId) return { ok: false, msg: "Group select karo" }
+    if (!row.dateTime) return { ok: false, msg: "Date/time select karo" }
+    const target = new Date(row.dateTime)
+    if (target <= new Date()) return { ok: false, msg: "Yeh time already beet chuka hai" }
+    const hoursAhead = (target - new Date()) / (1000 * 60 * 60)
+    if (hoursAhead > MAX_SCHEDULE_HOURS) return { ok: false, msg: `Brevo sirf ${MAX_SCHEDULE_HOURS} ghante tak schedule allow karta hai` }
+    return { ok: true }
+  }
+
+  // Jiska time pehle hai, uska job pehle banao — taaki processing queue mein bhi
+  // pehle number aaye aur uska scheduled time miss na ho.
+  const submitBulkSchedule = async () => {
+    if (!subjectOverride.trim() || !bodyOverride.trim()) {
+      showToast("Pehle Subject aur Body bharo (Compose tab ke editor mein)", "error")
+      return
+    }
+    if (senders.length === 0) { showToast("Kam se kam ek sender select karo", "error"); return }
+    if (!bulkRows.length) { showToast("Kam se kam ek group aur time add karo", "error"); return }
+
+    const invalidRow = bulkRows.find(r => !bulkRowValidation(r).ok)
+    if (invalidRow) {
+      showToast(`Ek row mein problem hai: ${bulkRowValidation(invalidRow).msg}`, "error")
+      return
+    }
+
+    const sortedRows = [...bulkRows].sort((a, b) => new Date(a.dateTime) - new Date(b.dateTime))
+
+    setBulkSubmitting(true)
+    const results = []
+    for (const row of sortedRows) {
+      const group = groups.find(g => g.id === row.groupId)
+      const groupMembers = recipients.filter(r => (r.groupIds || []).includes(row.groupId))
+      try {
+        await api.startEmailSend({
+          subject: subjectOverride,
+          body: bodyOverride,
+          templates: templates.filter(t => t.subject && t.body).map(t => ({ subject: t.subject, body: t.body })),
+          rotateVariants,
+          recipients: groupMembers.map(r => ({ email: r.email, name: r.name, company: r.company, city: r.city, customLine: r.customLine })),
+          senders,
+          ccEmail: ccEmail.trim(),
+          attachments,
+          gapMode, manualGapSec, autoMinSec, autoMaxSec,
+          baseTimeIso: new Date(row.dateTime).toISOString(),
+        })
+        results.push({ groupName: group?.name || "?", ok: true, count: groupMembers.length, time: row.dateTime })
+      } catch (err) {
+        results.push({ groupName: group?.name || "?", ok: false, msg: err.message })
+      }
+    }
+    setBulkResults(results)
+    setBulkSubmitting(false)
+    await loadEmailJobs()
+    const successCount = results.filter(r => r.ok).length
+    showToast(`${successCount} of ${results.length} groups schedule ho gaye!`, successCount === results.length ? "success" : "error")
+  }
   // ── Schedule tab — all email jobs, past/present/future ──
   const [emailJobs, setEmailJobs] = useState([])
   const [loadingEmailJobs, setLoadingEmailJobs] = useState(false)
@@ -874,12 +1101,18 @@ const startPolling = (jobId, total, batchId) => {
     );
     return;
   }
- if (senders.length === 0) { showToast("Add at least one sender email", "error"); return; }
-  if (recipients.length === 0) { showToast("No recipients added", "error"); return; }
-  if (dailySentCount + recipients.length > DAILY_LIMIT) { showToast(`Daily limit: ${DAILY_LIMIT}`, "error"); return; }
+
+  // 👇 NEW — sirf selected group ke recipients, ya sab agar koi group select nahi
+  const recipientsToSend = sendToGroupId
+    ? recipients.filter(r => (r.groupIds || []).includes(sendToGroupId))
+    : recipients;
+
+  if (senders.length === 0) { showToast("Add at least one sender email", "error"); return; }
+  if (recipientsToSend.length === 0) { showToast(sendToGroupId ? "Is group mein koi recipient nahi hai" : "No recipients added", "error"); return; }
+  if (dailySentCount + recipientsToSend.length > DAILY_LIMIT) { showToast(`Daily limit: ${DAILY_LIMIT}`, "error"); return; }
   if (scheduleMode === "later" && !scheduleValidation.ok) { showToast(scheduleValidation.msg, "error"); return; }
 
-  setSendSubmitting(true); // 👈 click hote hi turant set — await se pehle
+  setSendSubmitting(true);
 
   try {
     const { jobId, batchId } = await api.startEmailSend({
@@ -887,7 +1120,7 @@ const startPolling = (jobId, total, batchId) => {
       body: bodyOverride,
       templates: templates.filter(t => t.subject && t.body).map(t => ({ subject: t.subject, body: t.body })),
       rotateVariants,
-      recipients: recipients.map(r => ({ email: r.email, name: r.name, company: r.company, city: r.city, customLine: r.customLine })),
+      recipients: recipientsToSend.map(r => ({ email: r.email, name: r.name, company: r.company, city: r.city, customLine: r.customLine })),
       senders,
       ccEmail: ccEmail.trim(),
       attachments,
@@ -897,18 +1130,18 @@ const startPolling = (jobId, total, batchId) => {
       autoMaxSec,
       baseTimeIso: scheduleMode === "later" ? new Date(scheduledDateTime).toISOString() : undefined,
     });
-    setSendJob({ jobId, status: "queued", index: 0, total: recipients.length });
+    setSendJob({ jobId, status: "queued", index: 0, total: recipientsToSend.length });
     showToast(
       scheduleMode === "later"
-        ? `Batch scheduled for ${new Date(scheduledDateTime).toLocaleString()} — ${recipients.length} recipient${recipients.length !== 1 ? "s" : ""}`
-        : `Batch queued — ${recipients.length} recipient${recipients.length !== 1 ? "s" : ""}`,
+        ? `Batch scheduled for ${new Date(scheduledDateTime).toLocaleString()} — ${recipientsToSend.length} recipient${recipientsToSend.length !== 1 ? "s" : ""}`
+        : `Batch queued — ${recipientsToSend.length} recipient${recipientsToSend.length !== 1 ? "s" : ""}`,
       "success"
     );
-    startPolling(jobId, recipients.length, batchId);
+    startPolling(jobId, recipientsToSend.length, batchId);
   } catch (err) {
     showApiError(err);
   } finally {
-    setSendSubmitting(false); // 👈 chahe success ho ya fail, flag clear karo
+    setSendSubmitting(false);
   }
 };
   const handlePause = async () => {
@@ -1038,6 +1271,8 @@ const healthColor = healthScore === null ? C.textMuted : healthScore >= 75 ? C.g
      {[
           { id: "compose", label: "✍️ Compose & Send" },
           { id: "schedule", label: `📅 Schedule (${emailJobs.filter(j => ["queued","running","paused"].includes(j.status)).length})` },
+                    { id: "groups", label: `🗂 Groups (${groups.length})` },
+
           { id: "templates", label: "📚 My Templates" },
           { id: "followups", label: `⏰ Follow-ups (${followUps.length})` },
           { id: "tracking", label: `👁 Per-Email Tracking` },
@@ -1163,6 +1398,16 @@ const healthColor = healthScore === null ? C.textMuted : healthScore >= 75 ? C.g
 
             {/* Recipients */}
             <div style={{ padding: "12px 16px" }}>
+              <div style={{ marginBottom: 10 }}>
+                <div style={{ fontSize: 11, color: C.textMuted, marginBottom: 6, textTransform: "uppercase", letterSpacing: 1 }}>Send to</div>
+                <select value={sendToGroupId} onChange={e => setSendToGroupId(e.target.value)}
+                  style={{ width: "100%", background: C.card, border: `1px solid ${C.border2}`, color: C.text, padding: "7px 10px", borderRadius: 6, fontSize: 12, cursor: "pointer" }}>
+                  <option value="">All Recipients ({recipients.length})</option>
+                  {groups.map(g => (
+                    <option key={g.id} value={g.id}>{g.name} ({g.memberCount})</option>
+                  ))}
+                </select>
+              </div>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
                 <div style={{ fontSize: 11, color: C.textMuted, textTransform: "uppercase", letterSpacing: 1 }}>Recipients ({recipients.length}){loadingRecipients ? "…" : ""}</div>
                 <div style={{ display: "flex", gap: 6 }}>
@@ -1508,17 +1753,22 @@ const healthColor = healthScore === null ? C.textMuted : healthScore >= 75 ? C.g
               )}
 
               <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
-              <button onClick={sendAll} disabled={sendSubmitting || sending || isPaused || recipients.length === 0 || senders.length === 0 || (scheduleMode === "later" && !scheduleValidation.ok)} style={{
+            {(() => {
+                const targetCount = sendToGroupId ? recipients.filter(r => (r.groupIds || []).includes(sendToGroupId)).length : recipients.length
+                return (
+              <button onClick={sendAll} disabled={sendSubmitting || sending || isPaused || targetCount === 0 || senders.length === 0 || (scheduleMode === "later" && !scheduleValidation.ok)} style={{
   padding: "12px 28px", borderRadius: 8, border: "none",
-  background: (sendSubmitting || sending || isPaused || recipients.length === 0 || senders.length === 0 || (scheduleMode === "later" && !scheduleValidation.ok)) ? C.border2 : C.accent,
+  background: (sendSubmitting || sending || isPaused || targetCount === 0 || senders.length === 0 || (scheduleMode === "later" && !scheduleValidation.ok)) ? C.border2 : C.accent,
   color: "#fff", fontWeight: 700, fontSize: 14, cursor: "pointer",
 }}>
   {sendSubmitting ? "⏳ Sending request..."
     : isPaused ? `⏸ Paused at ${sendJob.index}/${sendJob.total}`
     : sending ? `⏳ Sending ${sendJob.index}/${sendJob.total}...`
-    : scheduleMode === "later" ? `🕓 Schedule ${recipients.length} recipient${recipients.length !== 1 ? "s" : ""}`
-    : `🚀 Send to ${recipients.length} recipient${recipients.length !== 1 ? "s" : ""}`}
+    : scheduleMode === "later" ? `🕓 Schedule ${targetCount} recipient${targetCount !== 1 ? "s" : ""}`
+    : `🚀 Send to ${targetCount} recipient${targetCount !== 1 ? "s" : ""}`}
 </button>
+                )
+              })()}
 
                 {sending && (
                   <button onClick={handlePause} style={{
@@ -1631,7 +1881,226 @@ const healthColor = healthScore === null ? C.textMuted : healthScore >= 75 ? C.g
           )}
         </div>
       )}
+{/* ── GROUPS ── */}
+      {activeView === "groups" && (
+        <div style={{ display: "grid", gridTemplateColumns: "300px 1fr", height: "calc(100vh - 49px)" }}>
+          <div style={{ borderRight: `1px solid ${C.border}`, overflowY: "auto", background: C.surface }}>
+            <div style={{ padding: 16, borderBottom: `1px solid ${C.border}` }}>
+              <div style={{ fontSize: 11, color: C.textMuted, marginBottom: 8, textTransform: "uppercase", letterSpacing: 1 }}>New Group</div>
+              <div style={{ display: "flex", gap: 6 }}>
+                <input value={newGroupName} onChange={e => setNewGroupName(e.target.value)}
+                  onKeyDown={e => e.key === "Enter" && handleCreateGroup()}
+                  placeholder="e.g. Batch A - IT Companies"
+                  style={{ flex: 1, background: C.card, border: `1px solid ${C.border2}`, color: C.text, padding: "7px 10px", borderRadius: 6, fontSize: 12 }} />
+                <button onClick={handleCreateGroup} disabled={creatingGroup} style={{
+                  background: C.accent, border: "none", color: "#fff", padding: "7px 12px", borderRadius: 6,
+                  cursor: creatingGroup ? "not-allowed" : "pointer", fontSize: 13, fontWeight: 700, opacity: creatingGroup ? 0.6 : 1,
+                }}>{creatingGroup ? <Spinner size={11} /> : "+"}</button>
+              </div>
+            </div>
 
+            <div style={{ padding: 10 }}>
+              {loadingGroups ? (
+                <div style={{ color: C.textDim, fontSize: 12, padding: "20px 10px", textAlign: "center" }}>Loading...</div>
+              ) : groups.length === 0 ? (
+                <div style={{ color: C.textDim, fontSize: 12, padding: "20px 10px", textAlign: "center" }}>
+                  Koi group nahi banaya abhi.<br /><span style={{ fontSize: 11 }}>Upar naam likh ke + dabao</span>
+                </div>
+              ) : groups.map(g => {
+                const isSelected = selectedGroupId === g.id
+                const isRenaming = renamingGroupId === g.id
+                const busy = groupActionId === g.id
+                return (
+                  <div key={g.id} style={{
+                    padding: "10px 12px", borderRadius: 8, marginBottom: 6, cursor: isRenaming ? "default" : "pointer",
+                    background: isSelected ? C.accentDim : C.card, border: `1px solid ${isSelected ? C.accent : C.border2}`,
+                  }} onClick={() => !isRenaming && setSelectedGroupId(g.id)}>
+                    {isRenaming ? (
+                      <div style={{ display: "flex", gap: 6 }} onClick={e => e.stopPropagation()}>
+                        <input value={renameDraft} onChange={e => setRenameDraft(e.target.value)}
+                          onKeyDown={e => e.key === "Enter" && handleRenameGroup(g.id)}
+                          autoFocus
+                          style={{ flex: 1, background: C.surface, border: `1px solid ${C.border2}`, color: C.text, padding: "5px 8px", borderRadius: 5, fontSize: 12 }} />
+                        <button onClick={() => handleRenameGroup(g.id)} disabled={busy} style={{ fontSize: 11, padding: "5px 10px", borderRadius: 5, border: "none", background: C.accent, color: "#fff", cursor: "pointer" }}>✓</button>
+                        <button onClick={() => setRenamingGroupId(null)} style={{ fontSize: 11, padding: "5px 10px", borderRadius: 5, border: `1px solid ${C.border2}`, background: "transparent", color: C.textMuted, cursor: "pointer" }}>✕</button>
+                      </div>
+                    ) : (
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div style={{ fontSize: 13, fontWeight: 600, color: isSelected ? C.accent : C.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{g.name}</div>
+                          <div style={{ fontSize: 10, color: C.textDim, marginTop: 2 }}>{g.memberCount} member{g.memberCount !== 1 ? "s" : ""}</div>
+                        </div>
+                        <div style={{ display: "flex", gap: 2, flexShrink: 0 }}>
+                          <button onClick={e => { e.stopPropagation(); setRenamingGroupId(g.id); setRenameDraft(g.name) }} style={{ background: "none", border: "none", color: C.textDim, cursor: "pointer", fontSize: 12, padding: 4 }}>✏️</button>
+                          <button onClick={e => { e.stopPropagation(); handleDeleteGroup(g.id, g.name) }} disabled={busy} style={{ background: "none", border: "none", color: C.textDim, cursor: "pointer", fontSize: 12, padding: 4 }}>
+                            {busy ? <Spinner size={9} color={C.textDim} /> : "🗑"}
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )
+              })}
+            </div>
+            <div style={{ padding: "16px", borderTop: `1px solid ${C.border}`, marginTop: 8 }}>
+              <div style={{ fontSize: 11, color: C.textMuted, marginBottom: 8, textTransform: "uppercase", letterSpacing: 1 }}>📅 Bulk Schedule (alag groups, alag time)</div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 8 }}>
+                {bulkRows.map(row => {
+                  const valid = bulkRowValidation(row)
+                  return (
+                    <div key={row.id} style={{ background: C.card, border: `1px solid ${valid.ok ? C.border2 : C.red + "55"}`, borderRadius: 8, padding: 8 }}>
+                      <select value={row.groupId} onChange={e => updateBulkRow(row.id, { groupId: e.target.value })}
+                        style={{ width: "100%", marginBottom: 6, background: C.surface, border: `1px solid ${C.border2}`, color: C.text, padding: "6px 8px", borderRadius: 5, fontSize: 12 }}>
+                        {groups.map(g => <option key={g.id} value={g.id}>{g.name} ({g.memberCount})</option>)}
+                      </select>
+                      <div style={{ display: "flex", gap: 6 }}>
+                        <input type="datetime-local" value={row.dateTime} onChange={e => updateBulkRow(row.id, { dateTime: e.target.value })}
+                          min={new Date(Date.now() + 5 * 60000).toISOString().slice(0, 16)}
+                          style={{ flex: 1, background: C.surface, border: `1px solid ${C.border2}`, color: C.text, padding: "6px 8px", borderRadius: 5, fontSize: 11 }} />
+                        <button onClick={() => removeBulkRow(row.id)} style={{ background: "none", border: `1px solid ${C.redDim}`, color: C.red, borderRadius: 5, padding: "0 10px", cursor: "pointer" }}>✕</button>
+                      </div>
+                      {!valid.ok && <div style={{ fontSize: 10, color: C.red, marginTop: 4 }}>{valid.msg}</div>}
+                    </div>
+                  )
+                })}
+              </div>
+              <button onClick={addBulkRow} style={{ width: "100%", marginBottom: 8, padding: 7, borderRadius: 6, border: `1px dashed ${C.border2}`, background: "transparent", color: C.textMuted, cursor: "pointer", fontSize: 12 }}>+ Add Row</button>
+              <button onClick={submitBulkSchedule} disabled={bulkSubmitting || bulkRows.length === 0} style={{
+                width: "100%", padding: 9, borderRadius: 6, border: "none", cursor: bulkSubmitting ? "not-allowed" : "pointer",
+                background: bulkSubmitting ? C.border2 : C.accent, color: "#fff", fontWeight: 700, fontSize: 12,
+                display: "flex", alignItems: "center", justifyContent: "center", gap: 6,
+              }}>{bulkSubmitting ? <><Spinner size={11} /> Scheduling...</> : "🚀 Schedule All Groups"}</button>
+
+              {bulkResults && (
+                <div style={{ marginTop: 8, display: "flex", flexDirection: "column", gap: 4 }}>
+                  {bulkResults.map((r, i) => (
+                    <div key={i} style={{ fontSize: 10, padding: "4px 8px", borderRadius: 5, background: r.ok ? C.greenDim : C.redDim, color: r.ok ? C.green : C.red }}>
+                      {r.ok ? `✓ ${r.groupName} — ${r.count} @ ${new Date(r.time).toLocaleString()}` : `✗ ${r.groupName} — ${r.msg}`}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+
+          <div style={{ overflowY: "auto", padding: 24 }}>
+            {!selectedGroupId ? (
+              <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", height: "100%", color: C.textDim, textAlign: "center" }}>
+                <div style={{ fontSize: 32, marginBottom: 12 }}>🗂</div>
+                <div style={{ fontSize: 14, color: C.textMuted, marginBottom: 6 }}>Ek group select karo</div>
+                <div style={{ fontSize: 12 }}>Phir yahan se recipients add/remove karo checkbox se</div>
+              </div>
+            ) : (
+              <>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+                  <h2 style={{ margin: 0, fontWeight: 700, fontSize: 18 }}>{groups.find(g => g.id === selectedGroupId)?.name}</h2>
+                  <div style={{ fontSize: 12, color: C.textMuted }}>{recipients.filter(r => (r.groupIds || []).includes(selectedGroupId)).length} of {recipients.length} recipients in this group</div>
+                </div>
+                <div style={{ fontSize: 12, color: C.textMuted, marginBottom: 16 }}>
+                  Checkbox se select karo ki kaun is group mein ho. Yeh Compose screen pe "Send to" mein select karke sirf inhi ko schedule kar sakte ho.
+                </div>
+                <div style={{ background: C.card, border: `1px solid ${C.border2}`, borderRadius: 10, padding: 14, marginBottom: 16 }}>
+                  <div style={{ fontSize: 11, color: C.textMuted, marginBottom: 8, textTransform: "uppercase", letterSpacing: 1 }}>➕ Naye Recipients Add Karo (seedha isi group mein)</div>
+                  <div style={{ display: "flex", gap: 6, marginBottom: 10 }}>
+                    <button onClick={() => setGroupRecipientMode("bulk")} style={{
+                      flex: 1, padding: "6px 8px", borderRadius: 6, fontSize: 11, cursor: "pointer",
+                      border: `1px solid ${groupRecipientMode === "bulk" ? C.accent : C.border2}`,
+                      background: groupRecipientMode === "bulk" ? C.accentDim : "transparent",
+                      color: groupRecipientMode === "bulk" ? C.accent : C.textMuted,
+                    }}>📋 Bulk Paste</button>
+                    <button onClick={() => setGroupRecipientMode("single")} style={{
+                      flex: 1, padding: "6px 8px", borderRadius: 6, fontSize: 11, cursor: "pointer",
+                      border: `1px solid ${groupRecipientMode === "single" ? C.accent : C.border2}`,
+                      background: groupRecipientMode === "single" ? C.accentDim : "transparent",
+                      color: groupRecipientMode === "single" ? C.accent : C.textMuted,
+                    }}>➕ Single Add</button>
+                    <button onClick={() => setGroupRecipientMode("csv")} style={{
+                      flex: 1, padding: "6px 8px", borderRadius: 6, fontSize: 11, cursor: "pointer",
+                      border: `1px solid ${groupRecipientMode === "csv" ? C.accent : C.border2}`,
+                      background: groupRecipientMode === "csv" ? C.accentDim : "transparent",
+                      color: groupRecipientMode === "csv" ? C.accent : C.textMuted,
+                    }}>📁 Import CSV</button>
+                  </div>
+
+                  {groupRecipientMode === "bulk" && (
+                    <div>
+                      <textarea value={groupBulkPasteText} onChange={e => setGroupBulkPasteText(e.target.value)}
+                        placeholder={`email1@x.com, Name, Company, City\nemail2@x.com, Name2, Company2\nemail3@x.com`}
+                        style={{ width: "100%", height: 90, background: C.surface, border: `1px solid ${C.border2}`, color: C.text, padding: "8px 10px", borderRadius: 6, fontSize: 11, fontFamily: "monospace", boxSizing: "border-box", resize: "vertical" }} />
+                      <button onClick={groupHandleBulkAdd} disabled={groupAddingRecipients} style={{
+                        width: "100%", marginTop: 6, background: C.accentDim, border: `1px solid ${C.accent}44`, color: C.accent,
+                        padding: 8, borderRadius: 6, cursor: groupAddingRecipients ? "not-allowed" : "pointer", fontSize: 12, fontWeight: 600,
+                        opacity: groupAddingRecipients ? 0.6 : 1, display: "flex", alignItems: "center", justifyContent: "center", gap: 6,
+                      }}>{groupAddingRecipients ? <><Spinner size={11} color={C.accent} /> Adding...</> : "📥 Add All to Group"}</button>
+                    </div>
+                  )}
+
+                  {groupRecipientMode === "single" && (
+                    <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                      <input placeholder="Email *" value={groupAddEmailInput} onChange={e => setGroupAddEmailInput(e.target.value)}
+                        onKeyDown={e => e.key === "Enter" && groupAddManualRecipient()}
+                        style={{ background: C.surface, border: `1px solid ${C.border2}`, color: C.text, padding: "7px 10px", borderRadius: 6, fontSize: 12 }} />
+                      <input placeholder="Name" value={groupAddNameInput} onChange={e => setGroupAddNameInput(e.target.value)}
+                        style={{ background: C.surface, border: `1px solid ${C.border2}`, color: C.text, padding: "7px 10px", borderRadius: 6, fontSize: 12 }} />
+                      <input placeholder="Company" value={groupAddCompanyInput} onChange={e => setGroupAddCompanyInput(e.target.value)}
+                        style={{ background: C.surface, border: `1px solid ${C.border2}`, color: C.text, padding: "7px 10px", borderRadius: 6, fontSize: 12 }} />
+                      <input placeholder="City" value={groupAddCityInput} onChange={e => setGroupAddCityInput(e.target.value)}
+                        style={{ background: C.surface, border: `1px solid ${C.border2}`, color: C.text, padding: "7px 10px", borderRadius: 6, fontSize: 12 }} />
+                      <button onClick={groupAddManualRecipient} disabled={groupAddingRecipients} style={{
+                        background: C.accentDim, border: `1px solid ${C.accent}44`, color: C.accent, padding: 7, borderRadius: 6,
+                        cursor: groupAddingRecipients ? "not-allowed" : "pointer", fontSize: 12, opacity: groupAddingRecipients ? 0.6 : 1,
+                        display: "flex", alignItems: "center", justifyContent: "center", gap: 6,
+                      }}>{groupAddingRecipients ? <><Spinner size={11} color={C.accent} /> Adding...</> : "+ Add to Group"}</button>
+                    </div>
+                  )}
+
+                  {groupRecipientMode === "csv" && (
+                    <div>
+                      <input ref={groupCsvFileInputRef} type="file" accept=".csv" onChange={groupHandleCsvFile} style={{ display: "none" }} />
+                      <div onClick={() => groupCsvFileInputRef.current?.click()} style={{
+                        border: `1.5px dashed ${C.border2}`, borderRadius: 8, padding: "18px 14px", textAlign: "center", cursor: "pointer", background: C.surface,
+                      }}>
+                        <div style={{ fontSize: 20, marginBottom: 4 }}>📁</div>
+                        <div style={{ fontSize: 12, color: C.text, fontWeight: 600 }}>Click to choose a CSV file</div>
+                      </div>
+                    </div>
+                  )}
+                </div>
+                <input placeholder="Search recipients..." value={groupMemberFilter} onChange={e => setGroupMemberFilter(e.target.value)}
+                  style={{ width: "100%", background: C.card, border: `1px solid ${C.border2}`, color: C.text, padding: "8px 12px", borderRadius: 6, fontSize: 12, boxSizing: "border-box", marginBottom: 12 }} />
+
+                {recipients.length === 0 ? (
+                  <div style={{ color: C.textDim, fontSize: 13, textAlign: "center", padding: 40 }}>Pehle Compose tab se recipients add karo.</div>
+                ) : (
+                  <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                    {recipients
+                      .filter(r => !groupMemberFilter || (r.email + (r.name || "") + (r.company || "")).toLowerCase().includes(groupMemberFilter.toLowerCase()))
+                      .map(r => {
+                        
+                        const isMember = (r.groupIds || []).includes(selectedGroupId)
+                        const busy = togglingMemberId === r.id
+                        return (
+                          <label key={r.id} style={{
+                            display: "flex", alignItems: "center", gap: 10, padding: "9px 12px", borderRadius: 8, cursor: busy ? "wait" : "pointer",
+                            background: isMember ? C.accentDim : C.card, border: `1px solid ${isMember ? C.accent + "55" : C.border2}`, opacity: busy ? 0.6 : 1,
+                          }}>
+                            <input type="checkbox" checked={isMember} disabled={busy} onChange={() => toggleGroupMember(r)} style={{ cursor: "pointer" }} />
+                            <div style={{ flex: 1, minWidth: 0 }}>
+                              <div style={{ fontSize: 12, fontWeight: 600, color: C.text }}>{r.company || r.name || r.email}</div>
+                              <div style={{ fontSize: 11, color: C.textMuted }}>{r.email}</div>
+                            </div>
+                            {busy && <Spinner size={11} color={C.accent} />}
+                          </label>
+                        )
+                      })}
+                  </div>
+                )}
+              </>
+            )}
+          </div>
+        </div>
+      )}
+      
   {/* ── FOLLOW-UPS ── */}
       {activeView === "followups" && (
         <div style={{ padding: 24 }}>
@@ -2531,6 +3000,66 @@ const healthColor = healthScore === null ? C.textMuted : healthScore >= 75 ? C.g
         </>
       )}
  {/* ── FOLLOW-UP SEND NOW MODAL ── */}
+ {/* ── GROUP CSV IMPORT MODAL ── */}
+      {groupShowCsvModal && (
+        <>
+          <div onClick={() => { if (!groupAddingRecipients) { setGroupShowCsvModal(false); setGroupCsvParsedRows([]) } }} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.75)", zIndex: 1000, backdropFilter: "blur(4px)" }} />
+          <div style={{
+            position: "fixed", top: "50%", left: "50%", transform: "translate(-50%, -50%)",
+            width: "min(820px, 94vw)", maxHeight: "88vh", background: C.surface,
+            border: `1px solid ${C.border2}`, borderRadius: 16, zIndex: 1001,
+            display: "flex", flexDirection: "column", boxShadow: "0 32px 96px rgba(0,0,0,0.6)", overflow: "hidden",
+          }}>
+            <div style={{ padding: "16px 24px", borderBottom: `1px solid ${C.border}`, display: "flex", justifyContent: "space-between", alignItems: "center", background: C.card, flexShrink: 0 }}>
+              <div>
+                <div style={{ fontWeight: 700, fontSize: 15 }}>📁 Import to Group — {groupCsvFileName}</div>
+                <div style={{ fontSize: 11, color: C.textMuted, marginTop: 2 }}>{groupCsvParsedRows.length} valid email row{groupCsvParsedRows.length !== 1 ? "s" : ""} detected · {groupCsvSelectedCount} selected</div>
+              </div>
+              <button onClick={() => { setGroupShowCsvModal(false); setGroupCsvParsedRows([]) }} disabled={groupAddingRecipients} style={{ width: 32, height: 32, borderRadius: "50%", background: C.border2, border: "none", color: C.text, cursor: groupAddingRecipients ? "not-allowed" : "pointer", fontSize: 16, opacity: groupAddingRecipients ? 0.5 : 1 }}>✕</button>
+            </div>
+            <div style={{ padding: "12px 24px", borderBottom: `1px solid ${C.border}`, display: "flex", gap: 10, alignItems: "center", flexShrink: 0 }}>
+              <input placeholder="Search rows..." value={groupCsvModalFilter} onChange={e => setGroupCsvModalFilter(e.target.value)}
+                style={{ flex: 1, background: C.card, border: `1px solid ${C.border2}`, color: C.text, padding: "7px 12px", borderRadius: 6, fontSize: 12 }} />
+              <button onClick={() => groupToggleCsvAll(true)} disabled={groupAddingRecipients} style={{ fontSize: 11, padding: "6px 12px", borderRadius: 6, border: `1px solid ${C.border2}`, background: "transparent", color: C.textMuted, cursor: groupAddingRecipients ? "not-allowed" : "pointer" }}>Select All</button>
+              <button onClick={() => groupToggleCsvAll(false)} disabled={groupAddingRecipients} style={{ fontSize: 11, padding: "6px 12px", borderRadius: 6, border: `1px solid ${C.border2}`, background: "transparent", color: C.textMuted, cursor: groupAddingRecipients ? "not-allowed" : "pointer" }}>Select None</button>
+            </div>
+            <div style={{ flex: 1, overflowY: "auto", padding: "8px 24px", opacity: groupAddingRecipients ? 0.5 : 1, pointerEvents: groupAddingRecipients ? "none" : "auto" }}>
+              {groupCsvParsedRows.length === 0 ? (
+                <div style={{ color: C.textDim, textAlign: "center", padding: 40, fontSize: 13 }}>Is CSV mein koi valid email row nahi mili.</div>
+              ) : (
+                <div style={{ display: "flex", flexDirection: "column", gap: 6, padding: "6px 0" }}>
+                  {groupCsvParsedRows.map((r, i) => {
+                    const q = groupCsvModalFilter.toLowerCase()
+                    if (q && !(r.email + r.name + r.company + r.city).toLowerCase().includes(q)) return null
+                    return (
+                      <div key={i} onClick={() => groupToggleCsvRow(i)} style={{
+                        display: "flex", alignItems: "center", gap: 12, padding: "9px 12px", borderRadius: 8, cursor: "pointer",
+                        background: r._selected ? C.accentDim : C.card, border: `1px solid ${r._selected ? C.accent + "55" : C.border2}`,
+                      }}>
+                        <input type="checkbox" checked={r._selected} onChange={() => groupToggleCsvRow(i)} onClick={e => e.stopPropagation()} style={{ cursor: "pointer" }} />
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div style={{ fontSize: 12, fontWeight: 600, color: C.text }}>{r.company || r.name || r.email}</div>
+                          <div style={{ fontSize: 11, color: C.textMuted }}>{r.email}{r.name ? ` · ${r.name}` : ""}</div>
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
+              )}
+            </div>
+            <div style={{ padding: "14px 24px", borderTop: `1px solid ${C.border}`, background: C.card, display: "flex", justifyContent: "flex-end", flexShrink: 0 }}>
+              <button onClick={groupConfirmCsvImport} disabled={groupCsvSelectedCount === 0 || groupAddingRecipients} style={{
+                padding: "9px 22px", borderRadius: 7, border: "none", cursor: (groupCsvSelectedCount === 0 || groupAddingRecipients) ? "not-allowed" : "pointer",
+                background: (groupCsvSelectedCount === 0 || groupAddingRecipients) ? C.border2 : C.accent, color: "#fff", fontSize: 13, fontWeight: 700,
+                display: "inline-flex", alignItems: "center", gap: 8,
+              }}>
+                {groupAddingRecipients && <Spinner size={13} />}
+                {groupAddingRecipients ? "Adding..." : `📥 Add ${groupCsvSelectedCount} to Group`}
+              </button>
+            </div>
+          </div>
+        </>
+      )}
       {sendNowTarget && (
         <>
           <div onClick={() => !sendingNowId && setSendNowTarget(null)} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.75)", zIndex: 1000, backdropFilter: "blur(4px)" }} />

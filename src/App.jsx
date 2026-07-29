@@ -10,6 +10,8 @@ import { startLeadScrapeRadius, pollJob, listLeads, startAdvancedSearch, getAdva
 import { MapContainer, TileLayer, Marker, Popup } from "react-leaflet";
 import "leaflet/dist/leaflet.css";
 import L from "leaflet";
+import loaderAnimation from "./assets/cat Mark loading.json";
+import Lottie from "lottie-react";
 
 delete L.Icon.Default.prototype._getIconUrl;
 L.Icon.Default.mergeOptions({
@@ -235,7 +237,7 @@ function DashboardInner() {
                 {active === "overview" && "Real-time performance across your outreach campaigns"}
                 {active === "leads" && "Scrape targeted leads from Google Maps"}
                 {active === "email" && "Compose, send and track cold emails via Brevo"}
-                {active === "totalLeads" && "Poori lead history — sab search se aaye leads ek jagah"}
+                {active === "totalLeads" && "Loading entire Leads History"}
                 {active === "proposals" && "Generate psychology-driven proposals for client job posts"}
               </p>
             </div>
@@ -991,10 +993,14 @@ const highlight = (text) => {
       || String(l.category||"").toLowerCase().includes(q)
       || String(l.email||"").toLowerCase().includes(q);
   });
-
-  if (loading) {
-    return <div style={{ textAlign:"center",padding:"60px 20px",color:COLORS.textMuted }}>Loading poori lead history...</div>;
-  }
+if (loading) {
+  return (
+    <div style={{ textAlign: "center", padding: "60px 20px", color: COLORS.textMuted }}>
+      <Lottie animationData={loaderAnimation} loop={true} style={{ width: 80, height: 80, margin: "0 auto" }} />
+      <p style={{ marginTop: 12, fontSize: 13 }}>Loading entire Leads History</p>
+    </div>
+  );
+}
   if (error) {
     return <div style={{ textAlign:"center",padding:"60px 20px",color:COLORS.red }}>Error: {error}</div>;
   }

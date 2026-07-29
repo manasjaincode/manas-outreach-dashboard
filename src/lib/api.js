@@ -159,7 +159,13 @@ export const addRecipients = (recipients) => callBackend("addRecipients", { reci
 export const updateRecipient = (payload) => callBackend("updateRecipient", payload); // { id, email, name, company, city, customLine }
 export const deleteRecipient = (id) => callBackend("deleteRecipient", { id });
 export const deleteRecipientsBatch = (ids) => callBackend("deleteRecipientsBatch", { ids });
-
+// ---- Recipient Groups ----
+export const listGroups = () => callBackend("listGroups");
+export const createGroup = (name) => callBackend("createGroup", { name });
+export const renameGroup = (id, name) => callBackend("renameGroup", { id, name });
+export const deleteGroup = (id) => callBackend("deleteGroup", { id });
+export const addRecipientsToGroup = (groupId, recipientIds) => callBackend("addRecipientsToGroup", { groupId, recipientIds });
+export const removeRecipientsFromGroup = (groupId, recipientIds) => callBackend("removeRecipientsFromGroup", { groupId, recipientIds });
 // ---- Email ----
 export const getSenders = () => callBackend("getSenders");
 export const startEmailSend = (payload) => callBackend("startEmailSend", payload);
