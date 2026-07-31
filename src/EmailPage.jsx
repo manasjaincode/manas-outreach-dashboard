@@ -90,15 +90,17 @@ const mapCsvToRecipients = (rows) => {
 // ============================================================
 // COLORS
 // ============================================================
+// PATCH 1 — replace the existing `const C = {...}` block with this:
+// ============================================================
 const C = {
-  bg: "#FFFFFF", surface: "#FFF7FA", card: "#FFFFFF",
-  border: "#F1D9E5", border2: "#E3AFC7",
-  accent: "#00BCD4", accentDim: "#00BCD41A",
-  green: "#0DB88E", greenDim: "#0DB88E15",
-  red: "#EF4462", redDim: "#EF446215",
-  yellow: "#F5A524", yellowDim: "#F5A52415",
-  cyan: "#FF5FA2", cyanDim: "#FF5FA21A",
-  text: "#1B1F27", textMuted: "#6B7280", textDim: "#AAB2BD",
+  bg: "#0A0A0C", surface: "#131316", card: "#1C1C20",
+  border: "#2A2A30", border2: "#3A3A42",
+  accent: "#C6FF3D", accentDim: "#C6FF3D14",
+  green: "#3DDC97", greenDim: "#3DDC9714",
+  red: "#FF5C72", redDim: "#FF5C7214",
+  yellow: "#FFB020", yellowDim: "#FFB02014",
+  cyan: "#FF5FA2", cyanDim: "#FF5FA214",
+  text: "#F2F2F5", textMuted: "#9B9BA5", textDim: "#5C5C66",
 }
 
 // ============================================================
@@ -612,12 +614,15 @@ const [rotateVariants, setRotateVariants] = useState(true)
     catch (err) { showApiError(err) }
     setJobActionId(null)
   }
-  const handleJobCancel = async (jobId) => {
-    const ok = await showConfirm("Is job ko cancel kar dein? Baaki recipients ko email nahi jaayega.")
+const handleJobCancel = async (jobId) => {
+    const ok = await showConfirm("Is batch ko cancel kar dein? Jo emails abhi Brevo pe pending/scheduled hain, sabko rok diya jaayega.")
     if (!ok) return
     setJobActionId(jobId)
-    try { await api.cancelEmailJob(jobId); showToast("Job cancelled", "success"); await loadEmailJobs() }
-    catch (err) { showApiError(err) }
+    try {
+      const result = await api.cancelEmailJob(jobId)
+      showToast(`${result.brevoCancelledCount} pending emails cancel ho gaye${result.brevoFailCount ? `, ${result.brevoFailCount} fail hue` : ""}`, result.brevoFailCount ? "error" : "success")
+      await loadEmailJobs()
+    } catch (err) { showApiError(err) }
     setJobActionId(null)
   }
 
@@ -1258,8 +1263,7 @@ const healthColor = healthScore === null ? C.textMuted : healthScore >= 75 ? C.g
 
   // ── RENDER ──
   return (
-    <div style={{ background: C.bg, minHeight: "100vh", color: C.text, fontFamily: "Inter,sans-serif", fontSize: 14 }}>
-   <style>{`
+<div style={{ background: C.bg, minHeight: "600px", width: "100%", boxSizing: "border-box", color: C.text, fontFamily: "Inter,sans-serif", fontSize: 14 }}>   <style>{`
         @keyframes fadeSlideIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
         @keyframes pulseGlow { 0%, 100% { box-shadow: 0 0 0 0 rgba(239,68,68,0.4); } 50% { box-shadow: 0 0 0 6px rgba(239,68,68,0); } }
         @keyframes toastSlideIn { from { opacity: 0; transform: translateY(12px) scale(0.97); } to { opacity: 1; transform: translateY(0) scale(1); } }
@@ -1267,8 +1271,7 @@ const healthColor = healthScore === null ? C.textMuted : healthScore >= 75 ? C.g
       `}</style>
 
       {/* Top nav */}
-      <div style={{ borderBottom: `1px solid ${C.border}`, padding: "0 24px", display: "flex", alignItems: "center", gap: 4, background: C.surface }}>
-     {[
+<div style={{ borderBottom: `1px solid ${C.border}`, padding: "0 24px", display: "flex", alignItems: "center", gap: 4, background: C.surface, overflowX: "auto", flexWrap: "nowrap" }}>     {[
           { id: "compose", label: "✍️ Compose & Send" },
           { id: "schedule", label: `📅 Schedule (${emailJobs.filter(j => ["queued","running","paused"].includes(j.status)).length})` },
                     { id: "groups", label: `🗂 Groups (${groups.length})` },
@@ -1296,8 +1299,7 @@ const healthColor = healthScore === null ? C.textMuted : healthScore >= 75 ? C.g
 
       {/* ── COMPOSE ── */}
       {activeView === "compose" && (
-        <div style={{ display: "grid", gridTemplateColumns: "320px 1fr", height: "calc(100vh - 49px)" }}>
-          {/* Left */}
+<div style={{ display: "grid", gridTemplateColumns: "320px 1fr", height: "calc(100vh - 210px)" }}>          {/* Left */}
           <div style={{ borderRight: `1px solid ${C.border}`, overflowY: "auto", background: C.surface }}>
             <div style={{ padding: 16, borderBottom: `1px solid ${C.border}` }}>
               <div style={{ fontSize: 11, color: C.textMuted, marginBottom: 8, textTransform: "uppercase", letterSpacing: 1 }}>Industry</div>
@@ -1839,8 +1841,12 @@ const healthColor = healthScore === null ? C.textMuted : healthScore >= 75 ? C.g
                 const busy = jobActionId === job.id
                 const canPause = job.status === "queued" || job.status === "running"
                 const canResume = job.status === "paused"
-                const canCancel = ["queued", "running", "paused", "pause_requested"].includes(job.status)
-                return (
+                  let jobProgress = {}
+ const canCancel = ["queued", "running", "paused", "pause_requested"].includes(job.status)
+  || (job.lastSendAt && new Date(job.lastSendAt) > new Date());
+
+
+  return (
                   <div key={job.id} style={{ background: C.card, border: `1px solid ${C.border2}`, borderRadius: 10, padding: "14px 18px" }}>
                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: 10 }}>
                       <div>
@@ -1883,8 +1889,7 @@ const healthColor = healthScore === null ? C.textMuted : healthScore >= 75 ? C.g
       )}
 {/* ── GROUPS ── */}
       {activeView === "groups" && (
-        <div style={{ display: "grid", gridTemplateColumns: "300px 1fr", height: "calc(100vh - 49px)" }}>
-          <div style={{ borderRight: `1px solid ${C.border}`, overflowY: "auto", background: C.surface }}>
+<div style={{ display: "grid", gridTemplateColumns: "300px 1fr", height: "calc(100vh - 210px)" }}>          <div style={{ borderRight: `1px solid ${C.border}`, overflowY: "auto", background: C.surface }}>
             <div style={{ padding: 16, borderBottom: `1px solid ${C.border}` }}>
               <div style={{ fontSize: 11, color: C.textMuted, marginBottom: 8, textTransform: "uppercase", letterSpacing: 1 }}>New Group</div>
               <div style={{ display: "flex", gap: 6 }}>
@@ -2552,8 +2557,7 @@ const healthColor = healthScore === null ? C.textMuted : healthScore >= 75 ? C.g
 
       {/* ── TEMPLATE MANAGER ── */}
       {activeView === "templates" && (
-        <div style={{ display: "grid", gridTemplateColumns: "220px 220px 1fr", height: "calc(100vh - 49px)" }}>
-          <div style={{ borderRight: `1px solid ${C.border}`, overflowY: "auto", background: C.surface }}>
+<div style={{ display: "grid", gridTemplateColumns: "220px 220px 1fr", height: "calc(100vh - 210px)" }}>          <div style={{ borderRight: `1px solid ${C.border}`, overflowY: "auto", background: C.surface }}>
             <div style={{ padding: 14, borderBottom: `1px solid ${C.border}` }}>
               <div style={{ fontSize: 11, color: C.textMuted, textTransform: "uppercase", letterSpacing: 1, marginBottom: 10 }}>Industries</div>
               <div style={{ display: "flex", gap: 6 }}>
@@ -2696,10 +2700,10 @@ const healthColor = healthScore === null ? C.textMuted : healthScore >= 75 ? C.g
               {sentLog.map((log, i) => (
                 <div key={log.id || i} style={{ padding: "12px 20px", borderBottom: `1px solid ${C.border}`, display: "flex", gap: 12, alignItems: "center" }}>
                   <div style={{
-                    fontSize: 11, padding: "3px 8px", borderRadius: 5, fontWeight: 700,
-                    background: log.status === "error" ? C.redDim : C.greenDim,
-                    color: log.status === "error" ? C.red : C.green,
-                  }}>{log.status === "error" ? "✗ FAILED" : log.status === "scheduled" ? "🕓 SCHEDULED" : "✓ SENT"}</div>
+  fontSize: 11, padding: "3px 8px", borderRadius: 5, fontWeight: 700,
+  background: log.status === "error" ? C.redDim : log.status === "cancelled" ? C.border2 : C.greenDim,
+  color: log.status === "error" ? C.red : log.status === "cancelled" ? C.textMuted : C.green,
+}}>{log.status === "error" ? "✗ FAILED" : log.status === "scheduled" ? "🕓 SCHEDULED" : log.status === "cancelled" ? "🚫 CANCELLED" : "✓ SENT"}</div>
                   <div>
                     <div style={{ fontWeight: 600, fontSize: 13 }}>{log.company || log.email}</div>
                     <div style={{ color: C.textMuted, fontSize: 11 }}>{log.email} · via {log.sender}</div>
