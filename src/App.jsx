@@ -251,7 +251,7 @@ function DashboardInner() {
           <div style={{
             flex: 1, padding: "28px 32px",
             opacity: transitioning ? 0 : 1,
-            transform: transitioning ? "translateY(6px)" : "translateY(0)",
+transform: transitioning ? "translateY(6px)" : "none",
             transition: "opacity 0.18s ease, transform 0.18s ease",
           }}>
             {active === "overview" && <OverviewPage setActive={changeTab} />}

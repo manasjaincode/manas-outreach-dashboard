@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import * as api from "./lib/api.js";
-
+import loaderAnimation from "./assets/cat Mark loading.json";
+import Lottie from "lottie-react";
 // ============================================================
 // TEMPLATE ENGINE — kept client-side for accurate live preview.
 // The actual send-time fill happens server-side in Email.gs using
@@ -162,6 +163,15 @@ function Spinner({ size = 13, color = "#fff" }) {
       border: `2px solid ${color}55`, borderTopColor: color,
       borderRadius: "50%", animation: "nectarSpin 0.7s linear infinite", flexShrink: 0,
     }} />
+  )
+}
+
+function PageLoader({ label = "Loading...", size = 80, padding = "60px 20px" }) {
+  return (
+    <div style={{ textAlign: "center", padding, color: "#9B9BA5" }}>
+      <Lottie animationData={loaderAnimation} loop={true} style={{ width: size, height: size, margin: "0 auto" }} />
+      <p style={{ marginTop: 12, fontSize: 13 }}>{label}</p>
+    </div>
   )
 }
 
@@ -627,8 +637,11 @@ const handleJobCancel = async (jobId) => {
   }
 
 const [sentLog, setSentLog] = useState([])
+  const [loadingSentLog, setLoadingSentLog] = useState(false)
   const loadSentLog = async () => {
+    setLoadingSentLog(true)
     try { const { sentLog: rows } = await api.listSentLog(); setSentLog(rows) } catch {}
+    setLoadingSentLog(false)
   }
   useEffect(() => { loadSentLog() }, [])
 
@@ -1173,8 +1186,8 @@ const startPolling = (jobId, total, batchId) => {
     setLoadingStats(false)
   }
 
-  useEffect(() => { if (activeView === "analytics") loadStats() }, [activeView])
-  useEffect(() => { if (activeView === "sent") loadSentLog() }, [activeView])
+useEffect(() => { if (activeView === "analytics" || activeView === "tracking") loadStats() }, [activeView])
+    useEffect(() => { if (activeView === "sent") loadSentLog() }, [activeView])
 
   const extractBatchId = (ev) => {
     const tags = ev.tags || []
@@ -1828,10 +1841,11 @@ const healthColor = healthScore === null ? C.textMuted : healthScore >= 75 ? C.g
           </div>
 
           {emailJobs.length === 0 ? (
-            <div style={{ color: C.textMuted, textAlign: "center", padding: 60 }}>
-              {loadingEmailJobs ? "Loading..." : "Koi batch send/scheduled nahi hai abhi."}
-            </div>
-          ) : (
+         
+  loadingEmailJobs ? <PageLoader label="Loading scheduled sends..." /> : (
+    <div style={{ color: C.textMuted, textAlign: "center", padding: 60 }}>Koi batch send/scheduled nahi hai abhi.</div>
+  )
+) : (
             <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
               {emailJobs.map((job) => {
                 const statusColor = job.status === "done" ? C.green : job.status === "error" ? C.red
@@ -1905,9 +1919,9 @@ const healthColor = healthScore === null ? C.textMuted : healthScore >= 75 ? C.g
             </div>
 
             <div style={{ padding: 10 }}>
-              {loadingGroups ? (
-                <div style={{ color: C.textDim, fontSize: 12, padding: "20px 10px", textAlign: "center" }}>Loading...</div>
-              ) : groups.length === 0 ? (
+             {loadingGroups ? (
+  <PageLoader label="Loading groups..." size={56} padding="24px 10px" />
+) : groups.length === 0 ? (
                 <div style={{ color: C.textDim, fontSize: 12, padding: "20px 10px", textAlign: "center" }}>
                   Koi group nahi banaya abhi.<br /><span style={{ fontSize: 11 }}>Upar naam likh ke + dabao</span>
                 </div>
@@ -2116,11 +2130,11 @@ const healthColor = healthScore === null ? C.textMuted : healthScore >= 75 ? C.g
           </div>
 
           {followUpSubView === "tracking" && (
-            followUps.length === 0 ? (
-              <div style={{ color: C.textMuted, textAlign: "center", padding: 60 }}>
-                {loadingFollowUps ? "Loading..." : "Koi follow-up track nahi ho rahi abhi. Ek batch bhejo, phir 'Add to Follow-up' dabao."}
-              </div>
-            ) : (
+          followUps.length === 0 ? (
+  loadingFollowUps ? <PageLoader label="Loading follow-ups..." /> : (
+    <div style={{ color: C.textMuted, textAlign: "center", padding: 60 }}>Koi follow-up track nahi ho rahi abhi. Ek batch bhejo, phir 'Add to Follow-up' dabao.</div>
+  )
+) : (
               <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
                 {followUps.map((row) => {
                   const statusColor = row.status === "active" ? C.green : row.status === "stopped" ? C.yellow : row.status === "paused" ? C.textMuted : row.status === "completed" ? C.accent : C.red
@@ -2232,11 +2246,11 @@ const healthColor = healthScore === null ? C.textMuted : healthScore >= 75 ? C.g
             </div>
           </div>
 
-          {Object.keys(eventsByEmailBatch).length === 0 ? (
-            <div style={{ color: C.textMuted, textAlign: "center", padding: 60 }}>
-              {loadingStats ? "Loading..." : "No events yet. Send some emails first, then refresh."}
-            </div>
-          ) : (
+       {Object.keys(eventsByEmailBatch).length === 0 ? (
+  loadingStats ? <PageLoader label="Loading tracking data..." /> : (
+    <div style={{ color: C.textMuted, textAlign: "center", padding: 60 }}>No events yet. Send some emails first, then refresh.</div>
+  )
+) : (
             <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
               {Object.values(eventsByEmailBatch)
                 .filter(({ events: evs }) => trackingFilter === "all" || evs.some(e => e.event === trackingFilter))
@@ -2302,9 +2316,11 @@ const healthColor = healthScore === null ? C.textMuted : healthScore >= 75 ? C.g
             </button>
           </div>
 
-          {!stats ? (
-            <div style={{ color: C.textMuted, textAlign: "center", padding: 60 }}>{loadingStats ? "Loading..." : "Click Refresh"}</div>
-          ) : (
+       {!stats ? (
+  loadingStats ? <PageLoader label="Loading analytics..." /> : (
+    <div style={{ color: C.textMuted, textAlign: "center", padding: 60 }}>Click Refresh</div>
+  )
+) : (
             <>
               <div style={{ background: C.card, border: `2px solid ${healthColor}44`, borderRadius: 12, padding: 20, marginBottom: 16, display: "flex", gap: 24, alignItems: "center", animation: "fadeSlideIn 0.4s ease both" }}>
                 <div style={{ textAlign: "center", minWidth: 80 }}>
@@ -2513,11 +2529,11 @@ const healthColor = healthScore === null ? C.textMuted : healthScore >= 75 ? C.g
             <div style={{ background: C.redDim, border: `1px solid ${C.red}44`, borderRadius: 10, padding: 16, color: C.red, fontSize: 13, marginBottom: 16 }}>⚠️ {sendersError}</div>
           )}
 
-          {allSenders.length === 0 ? (
-            <div style={{ color: C.textMuted, textAlign: "center", padding: 40 }}>
-              {loadingSenders ? "Loading senders..." : "Brevo mein koi verified sender nahi mila. Pehle Brevo dashboard → Settings → Senders & IPs mein verify karo."}
-            </div>
-          ) : (
+        {allSenders.length === 0 ? (
+  loadingSenders ? <PageLoader label="Loading senders..." padding="40px 20px" /> : (
+    <div style={{ color: C.textMuted, textAlign: "center", padding: 40 }}>Brevo mein koi verified sender nahi mila. Pehle Brevo dashboard → Settings → Senders & IPs mein verify karo.</div>
+  )
+) : (
             <>
               <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
                 <button onClick={() => setActiveSenderEmails(allSenders.map(s => s.email))} style={{ fontSize: 11, padding: "6px 12px", borderRadius: 6, border: `1px solid ${C.border2}`, background: "transparent", color: C.textMuted, cursor: "pointer" }}>Select All</button>
@@ -2689,12 +2705,19 @@ const healthColor = healthScore === null ? C.textMuted : healthScore >= 75 ? C.g
         </div>
       )}
 
-      {/* ── SENT LOG ── */}
+{/* ── SENT LOG ── */}
       {activeView === "sent" && (
         <div style={{ padding: 24 }}>
-          <h2 style={{ margin: "0 0 20px", fontWeight: 700, fontSize: 20 }}>Sent Log</h2>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
+            <h2 style={{ margin: 0, fontWeight: 700, fontSize: 20 }}>Sent Log</h2>
+            <button onClick={loadSentLog} disabled={loadingSentLog} style={{ padding: "8px 16px", borderRadius: 7, border: `1px solid ${C.border2}`, background: C.card, color: C.text, cursor: "pointer", fontSize: 12 }}>
+              {loadingSentLog ? "..." : "🔄 Refresh"}
+            </button>
+          </div>
           {sentLog.length === 0 ? (
-            <div style={{ color: C.textMuted, textAlign: "center", padding: 60 }}>No emails sent yet.</div>
+            loadingSentLog ? <PageLoader label="Loading sent log..." /> : (
+              <div style={{ color: C.textMuted, textAlign: "center", padding: 60 }}>No emails sent yet.</div>
+            )
           ) : (
             <div style={{ background: C.card, border: `1px solid ${C.border2}`, borderRadius: 10, overflow: "hidden" }}>
               {sentLog.map((log, i) => (
@@ -2947,9 +2970,9 @@ const healthColor = healthScore === null ? C.textMuted : healthScore >= 75 ? C.g
               <button onClick={() => setLogDetailsModal(null)} style={{ width: 32, height: 32, borderRadius: "50%", background: C.border2, border: "none", color: C.text, cursor: "pointer", fontSize: 16 }}>✕</button>
             </div>
 
-            {logDetailsModal.loading ? (
-              <div style={{ padding: 60, textAlign: "center", color: C.textMuted }}><Spinner size={20} color={C.accent} /> Loading...</div>
-            ) : logDetailsModal.error ? (
+         {logDetailsModal.loading ? (
+  <PageLoader label="Loading email details..." size={64} padding="40px 20px" />
+) : logDetailsModal.error ? (
               <div style={{ padding: 24, color: C.red }}>{logDetailsModal.error}</div>
             ) : (
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 0, flex: 1, overflow: "hidden" }}>
