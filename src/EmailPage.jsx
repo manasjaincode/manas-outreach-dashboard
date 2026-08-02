@@ -715,8 +715,10 @@ const [sentLog, setSentLog] = useState([])
     try {
       const { sentLog: freshLog } = await api.listSentLog()
       const batchRows = freshLog.filter((l) => l.batchId === lastSentBatch.batchId && (l.status === "sent" || l.status === "scheduled"))
-      const items = batchRows.map((l) => {
+     const items = batchRows.map((l) => {
         const r = recipients.find((rec) => rec.email === l.email)
+          const senderObj = senders.find(s => s.email === l.sender)   // 👈 ADD
+
         return {
           email: l.email,
           name: r?.name || "",
@@ -724,6 +726,10 @@ const [sentLog, setSentLog] = useState([])
           sender: l.sender,
           initialBatchId: l.batchId,
           initialSentAt: l.time,
+          subject: l.subject || "",       // 👈 NEW — threading ke liye
+              senderName: senderObj?.name || l.sender,   // 👈 ADD
+
+          messageId: l.messageId || "",   // 👈 NEW — threading ke liye
           mode: addFollowUpMode,
         }
       })
@@ -806,6 +812,70 @@ const [sentLog, setSentLog] = useState([])
   const [trackingFilter, setTrackingFilter] = useState("all")
 
   const [previewRecipient, setPreviewRecipient] = useState(null)
+  const [threadModal, setThreadModal] = useState(null) // { loading, data, error }
+  const [replies, setReplies] = useState([])
+  const [replyBellOpen, setReplyBellOpen] = useState(false)
+  const replyBellRef = useRef(null)
+
+  const loadReplies = async () => {
+    try { const { replies: rows } = await api.listReplies(); setReplies(rows) } catch {}
+  }
+  useEffect(() => { loadReplies() }, [])
+  useEffect(() => {
+    const t = setInterval(loadReplies, 30000) // 30s pe refresh
+    return () => clearInterval(t)
+  }, [])
+
+  useEffect(() => {
+    const handler = (e) => { if (replyBellRef.current && !replyBellRef.current.contains(e.target)) setReplyBellOpen(false) }
+    document.addEventListener("mousedown", handler)
+    return () => document.removeEventListener("mousedown", handler)
+  }, [])
+
+  const unreadReplies = replies.filter(r => r.viewCount < 4)
+
+  const openReplyFromBell = (r) => {
+    setReplyBellOpen(false)
+    setActiveView("tracking")
+    openThread(r.batchId, r.email)
+  }
+  const [threadSelectedIdx, setThreadSelectedIdx] = useState(0)
+  const [replyBoxOpen, setReplyBoxOpen] = useState(false)
+  const [replySubject, setReplySubject] = useState("")
+  const [replyBody, setReplyBody] = useState("")
+  const [sendingReply, setSendingReply] = useState(false)
+const [replyAttachments, setReplyAttachments] = useState([])
+  const [replyAttachmentDropdownOpen, setReplyAttachmentDropdownOpen] = useState(false)
+const openReplyBox = (selectedMsg) => {
+    const base = selectedMsg?.subject || ""
+    setReplySubject(/^re:/i.test(base) ? base : `Re: ${base}`)
+    setReplyBody("")
+    setReplyAttachments([])
+    setReplyBoxOpen(true)
+  }
+
+const sendReply = async () => {
+    if (!replyBody.trim()) { showToast("Reply body khali hai!", "error"); return }
+    setSendingReply(true)
+    try {
+      await api.sendReplyInThread(threadModal.data.batchId, threadModal.data.email, replySubject, replyBody, replyAttachments)
+      showToast("Reply bhej diya!", "success")
+      setReplyBoxOpen(false)
+      openThread(threadModal.data.batchId, threadModal.data.email)
+    } catch (err) { showApiError(err) }
+    setSendingReply(false)
+  }
+const openThread = async (batchId, email) => {
+    setThreadSelectedIdx(0)
+    setThreadModal({ loading: true, data: null, error: null })
+    try {
+      const { thread } = await api.getEmailThread(batchId, email)
+      setThreadModal({ loading: false, data: thread, error: null })
+      api.markRepliesViewed(batchId, email).then(loadReplies).catch(() => {})
+    } catch (err) {
+      setThreadModal({ loading: false, data: null, error: err.message })
+    }
+  }
 const [hoveredSender, setHoveredSender] = useState(null)
 const [logDetailsModal, setLogDetailsModal] = useState(null)
 
@@ -1093,11 +1163,11 @@ const startPolling = (jobId, total, batchId) => {
         let progress = {}
         try { progress = JSON.parse(job.progress || "{}") } catch {}
         setSendJob({ jobId, status: job.status, index: progress.index || 0, total, resultSummary: job.resultSummary })
-        if (job.status === "done" || job.status === "error") {
+       if (job.status === "done" || job.status === "error") {
           clearInterval(pollRef.current); pollRef.current = null
           if (job.status === "done") {
-            showToast(job.resultSummary || "Batch complete!", "success")
-            if (batchId) setLastSentBatch({ batchId, count: total })
+            showToast(job.resultSummary ? `${job.resultSummary} — follow-up tracking automatically ho gaya` : "Batch complete — follow-up automatically add ho gaya!", "success")
+            loadFollowUps()
           } else showToast(`Job failed: ${job.resultSummary}`, "error")
           loadSentLog()
         }
@@ -1303,7 +1373,39 @@ const healthColor = healthScore === null ? C.textMuted : healthScore >= 75 ? C.g
             fontWeight: activeView === tab.id ? 600 : 400, fontSize: 13, whiteSpace: "nowrap",
           }}>{tab.label}</button>
         ))}
-        <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 12, flexShrink: 0 }}>
+ <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 16, flexShrink: 0, position: "relative" }} ref={replyBellRef}>
+          <button onClick={() => setReplyBellOpen(o => !o)} style={{ position: "relative", background: "none", border: "none", cursor: "pointer", fontSize: 18, color: C.text, padding: 4 }}>
+            🔔
+            {unreadReplies.length > 0 && (
+              <span style={{ position: "absolute", top: -2, right: -4, background: C.red, color: "#fff", fontSize: 10, fontWeight: 700, borderRadius: "50%", width: 16, height: 16, display: "flex", alignItems: "center", justifyContent: "center" }}>
+                {unreadReplies.length > 9 ? "9+" : unreadReplies.length}
+              </span>
+            )}
+          </button>
+
+          {replyBellOpen && (
+            <div style={{ position: "absolute", top: 32, right: 0, width: 340, maxHeight: 400, overflowY: "auto", background: C.card, border: `1px solid ${C.border2}`, borderRadius: 10, boxShadow: "0 12px 32px rgba(0,0,0,0.5)", zIndex: 100 }}>
+              <div style={{ padding: "10px 14px", borderBottom: `1px solid ${C.border}`, fontSize: 12, fontWeight: 700, color: C.textMuted, textTransform: "uppercase", letterSpacing: 1 }}>
+                📩 Replies ({unreadReplies.length} new)
+              </div>
+              {replies.length === 0 ? (
+                <div style={{ padding: 20, color: C.textDim, fontSize: 12, textAlign: "center" }}>Koi reply nahi aayi abhi</div>
+              ) : replies.slice(0, 20).map((r) => (
+                <div key={r.id} onClick={() => openReplyFromBell(r)} style={{
+                  padding: "10px 14px", borderBottom: `1px solid ${C.border}`, cursor: "pointer",
+                  background: r.viewCount < 4 ? C.redDim : "transparent",
+                }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", gap: 8 }}>
+                    <span style={{ fontSize: 12, fontWeight: 700, color: r.viewCount < 4 ? C.red : C.text }}>{r.email}</span>
+                    <span style={{ fontSize: 10, color: C.textDim, whiteSpace: "nowrap" }}>{new Date(r.receivedAt).toLocaleDateString()}</span>
+                  </div>
+                  <div style={{ fontSize: 11, color: C.textMuted, marginTop: 2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.subject}</div>
+                  <div style={{ fontSize: 11, color: C.textDim, marginTop: 2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.preview}</div>
+                </div>
+              ))}
+            </div>
+          )}
+
           <div style={{ fontSize: 12, color: C.textMuted }}>
             Today: <span style={{ color: dailySentCount > 400 ? C.red : C.green, fontWeight: 700 }}>{dailySentCount}</span>/{DAILY_LIMIT}
           </div>
@@ -1811,20 +1913,7 @@ const healthColor = healthScore === null ? C.textMuted : healthScore >= 75 ? C.g
                 )}
               </div>
 
-              {lastSentBatch && (
-                <div style={{ marginTop: 14, background: C.accentDim, border: `1px solid ${C.accent}44`, borderRadius: 10, padding: "12px 16px", display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
-                  <span style={{ fontSize: 13, color: C.text }}>✅ {lastSentBatch.count} bheji gayi — inhe follow-up tracking mein daalein?</span>
-                  <select value={addFollowUpMode} onChange={e => setAddFollowUpMode(e.target.value)} style={{ padding: "6px 10px", borderRadius: 6, border: `1px solid ${C.border2}`, fontSize: 12, cursor: "pointer" }}>
-                    <option value="auto">🤖 Automate (Day 1/3/5/7)</option>
-                    <option value="manual">✋ Manual (mai khud control karunga)</option>
-                  </select>
-                  <button onClick={handleAddToFollowUp} disabled={addingToFollowUp} style={{ padding: "7px 16px", borderRadius: 7, border: "none", background: C.accent, color: "#fff", fontSize: 12, fontWeight: 700, cursor: addingToFollowUp ? "not-allowed" : "pointer", opacity: addingToFollowUp ? 0.6 : 1, display: "inline-flex", alignItems: "center", gap: 6 }}>
-                    {addingToFollowUp && <Spinner size={11} />}
-                    {addingToFollowUp ? "Adding..." : "➕ Add to Follow-up"}
-                  </button>
-                  <button onClick={() => setLastSentBatch(null)} style={{ background: "none", border: "none", color: C.textMuted, cursor: "pointer", fontSize: 12 }}>Dismiss</button>
-                </div>
-              )}
+           
             </div>
           </div>
       </div>
@@ -2176,6 +2265,16 @@ const healthColor = healthScore === null ? C.textMuted : healthScore >= 75 ? C.g
                     </div>
                   )
                 })}
+                {(() => {
+                            const replyMatch = replies.find(r => r.batchId === batchId && r.email === email)
+                            if (!replyMatch) return null
+                            const isFresh = replyMatch.viewCount < 4
+                            return (
+                              <div style={{ marginTop: 4, fontSize: 11, color: isFresh ? C.red : C.textDim, fontWeight: isFresh ? 700 : 400 }}>
+                                📩 Reply received {isFresh ? "🔴" : ""}
+                              </div>
+                            )
+                          })()}
               </div>
             )
           )}
@@ -2266,6 +2365,7 @@ const healthColor = healthScore === null ? C.textMuted : healthScore >= 75 ? C.g
 
                   return (
                     <div key={`${email}__${batchId}`} style={{ background: C.card, border: `2px solid ${isSpam ? C.red : isUnsub ? C.yellow : isBounced ? C.yellow : C.border2}`, borderRadius: 10, padding: "14px 18px" }}>
+                 
                       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 10 }}>
                         <div>
                           <div style={{ fontWeight: 700, fontSize: 14 }}>{email}</div>
@@ -2274,16 +2374,24 @@ const healthColor = healthScore === null ? C.textMuted : healthScore >= 75 ? C.g
                             {sentMeta?.variantUsed && <span> · Draft variant {sentMeta.variantUsed}</span>}
                           </div>
                           <div style={{ fontSize: 11, color: C.textMuted }}>Last activity: {lastSeen ? new Date(lastSeen).toLocaleString() : "—"}</div>
-                        </div>
-                        <div style={{ display: "flex", gap: 6, flexWrap: "wrap", justifyContent: "flex-end" }}>
-                          {isSpam && <span style={{ fontSize: 11, padding: "3px 8px", borderRadius: 5, background: C.redDim, color: C.red, fontWeight: 700 }}>🚨 SPAM</span>}
-                          {isUnsub && <span style={{ fontSize: 11, padding: "3px 8px", borderRadius: 5, background: C.yellowDim, color: C.yellow, fontWeight: 700 }}>🚫 UNSUBSCRIBED</span>}
-                          {isBounced && <span style={{ fontSize: 11, padding: "3px 8px", borderRadius: 5, background: C.yellowDim, color: C.yellow, fontWeight: 700 }}>BOUNCED</span>}
-                          {opens.length > 0 && <span style={{ fontSize: 11, padding: "3px 8px", borderRadius: 5, background: C.accentDim, color: C.accent, fontWeight: 700 }}>👁 {opens.length}x opened</span>}
-                          {clicks.length > 0 && <span style={{ fontSize: 11, padding: "3px 8px", borderRadius: 5, background: C.cyanDim, color: C.cyan, fontWeight: 700 }}>🖱 {clicks.length}x clicked</span>}
-                        <button onClick={() => openLogDetails(sentMeta?.messageId)} style={{ fontSize: 11, padding: "3px 8px", borderRadius: 4, border: `1px solid ${C.border2}`, background: "transparent", color: C.textMuted, cursor: "pointer" }}>👁</button>
+                          {(() => {
+                            const fuCount = sentLog.filter(s => s.batchId === batchId && s.email === email && String(s.variantUsed || "").toLowerCase().indexOf("followup") !== -1).length
+                            return fuCount > 0 ? (
+                              <div style={{ marginTop: 4, fontSize: 11, color: C.accent, fontWeight: 600 }}>🔁 {fuCount} follow-up{fuCount !== 1 ? "s" : ""} sent</div>
+                            ) : null
+                          })()} </div>
+                        <div style={{ display: "flex", gap: 6, alignItems: "flex-start" }}>
+                          <button onClick={() => openThread(batchId, email)} style={{ fontSize: 11, padding: "4px 10px", borderRadius: 5, border: `1px solid ${C.accent}44`, background: C.accentDim, color: C.accent, cursor: "pointer" }}>👁 View Thread</button>
+                          <div style={{ display: "flex", gap: 6, flexWrap: "wrap", justifyContent: "flex-end" }}>
+                            {isSpam && <span style={{ fontSize: 11, padding: "3px 8px", borderRadius: 5, background: C.redDim, color: C.red, fontWeight: 700 }}>🚨 SPAM</span>}
+                            {isUnsub && <span style={{ fontSize: 11, padding: "3px 8px", borderRadius: 5, background: C.yellowDim, color: C.yellow, fontWeight: 700 }}>🚫 UNSUBSCRIBED</span>}
+                            {isBounced && <span style={{ fontSize: 11, padding: "3px 8px", borderRadius: 5, background: C.yellowDim, color: C.yellow, fontWeight: 700 }}>BOUNCED</span>}
+                            {opens.length > 0 && <span style={{ fontSize: 11, padding: "3px 8px", borderRadius: 5, background: C.accentDim, color: C.accent, fontWeight: 700 }}>👁 {opens.length}x opened</span>}
+                            {clicks.length > 0 && <span style={{ fontSize: 11, padding: "3px 8px", borderRadius: 5, background: C.cyanDim, color: C.cyan, fontWeight: 700 }}>🖱 {clicks.length}x clicked</span>}
+                          </div>
                         </div>
                       </div>
+                      
                       <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
                         {evs.sort((a, b) => new Date(a.date) - new Date(b.date)).map((ev, i) => (
                           <div key={i} style={{ display: "flex", alignItems: "center", gap: 10, fontSize: 12 }}>
@@ -2900,6 +3008,7 @@ const healthColor = healthScore === null ? C.textMuted : healthScore >= 75 ? C.g
       )}
 
       {/* ── PREVIEW MODAL ── */}
+      
       {previewRecipient && (() => {
         const p = getPreviewFor(previewRecipient)
         const sender = senders[Math.floor(Math.random() * Math.max(senders.length, 1))]
@@ -2956,6 +3065,174 @@ const healthColor = healthScore === null ? C.textMuted : healthScore >= 75 ? C.g
           </>
         )
       })()}
+{/* ── EMAIL THREAD MODAL (Gmail-style: LHS list, RHS details+timeline) ── */}
+      {threadModal && (
+        <>
+          <div onClick={() => setThreadModal(null)} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.75)", zIndex: 1000, backdropFilter: "blur(4px)" }} />
+          <div style={{
+            position: "fixed", top: "50%", left: "50%", transform: "translate(-50%, -50%)",
+            width: "min(1000px, 94vw)", maxHeight: "88vh", background: C.surface,
+            border: `1px solid ${C.border2}`, borderRadius: 16, zIndex: 1001,
+            display: "flex", flexDirection: "column", boxShadow: "0 32px 96px rgba(0,0,0,0.6)", overflow: "hidden",
+          }}>
+            <div style={{ padding: "16px 24px", borderBottom: `1px solid ${C.border}`, display: "flex", justifyContent: "space-between", alignItems: "center", background: C.card, flexShrink: 0 }}>
+              <div style={{ fontWeight: 700, fontSize: 15 }}>📧 Thread — {threadModal.data?.email || ""}</div>
+<button onClick={() => { setThreadModal(null); setReplyBoxOpen(false) }} style={{ width: 32, height: 32, borderRadius: "50%", background: C.border2, border: "none", color: C.text, cursor: "pointer", fontSize: 16 }}>✕</button>            </div>
+
+            {threadModal.loading ? (
+              <div style={{ padding: 60, textAlign: "center", color: C.textMuted, display: "flex", alignItems: "center", justifyContent: "center", gap: 10 }}><Spinner size={18} color={C.accent} /> Loading thread...</div>
+            ) : threadModal.error ? (
+              <div style={{ padding: 24, color: C.red }}>{threadModal.error}</div>
+            ) : (() => {
+              const messages = threadModal.data.messages
+              const selected = messages[threadSelectedIdx] || messages[0]
+              return (
+                <div style={{ display: "grid", gridTemplateColumns: "320px 1fr", flex: 1, overflow: "hidden" }}>
+                  {/* LHS — list of messages */}
+                  <div style={{ borderRight: `1px solid ${C.border}`, overflowY: "auto", background: C.card }}>
+                    {messages.map((msg, i) => {
+                      const isActive = i === threadSelectedIdx
+                      const plainPreview = (msg.htmlContent || "").replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim().slice(0, 80)
+                      return (
+                        <div key={msg.messageId || i} onClick={() => setThreadSelectedIdx(i)} style={{
+                          padding: "12px 16px", borderBottom: `1px solid ${C.border}`, cursor: "pointer",
+                          background: isActive ? C.accentDim : "transparent",
+                          borderLeft: isActive ? `3px solid ${C.accent}` : "3px solid transparent",
+                        }}>
+                          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4, gap: 6 }}>
+                            <span style={{ fontSize: 10, fontWeight: 700, padding: "2px 7px", borderRadius: 5, background: msg.isFollowUp ? C.accent : C.border2, color: msg.isFollowUp ? "#000" : C.textMuted, flexShrink: 0 }}>{msg.label}</span>
+                            <span style={{ fontSize: 10, color: C.textDim, whiteSpace: "nowrap" }}>{msg.sentAt ? new Date(msg.sentAt).toLocaleDateString() : "—"}</span>
+                          </div>
+                          <div style={{ fontSize: 13, fontWeight: isActive ? 700 : 600, color: isActive ? C.accent : C.text, marginBottom: 3, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{msg.subject || "(no subject)"}</div>
+                          <div style={{ fontSize: 11, color: C.textMuted, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{plainPreview || "No preview available"}</div>
+                        </div>
+                      )
+                    })}
+                  </div>
+
+                  {/* RHS — Details + Timeline for selected message */}
+                  {selected && (
+                    <div style={{ overflowY: "auto" }}>
+                      <div style={{ padding: "20px 24px 0" }}>
+                        <div style={{ fontSize: 20, fontWeight: 700, marginBottom: 20 }}>{selected.subject || "(no subject)"}</div>
+                      </div>
+                      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 0 }}>
+                        {/* Details */}
+                        <div style={{ padding: "0 24px 24px", borderRight: `1px solid ${C.border}` }}>
+                          <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 14 }}>Details</div>
+
+                          <div style={{ fontSize: 11, color: C.textMuted, textTransform: "uppercase", marginBottom: 4 }}>Sent on</div>
+                          <div style={{ fontSize: 13, marginBottom: 14 }}>{selected.sentAt ? new Date(selected.sentAt).toLocaleString() : "—"}</div>
+
+                          <div style={{ fontSize: 11, color: C.textMuted, textTransform: "uppercase", marginBottom: 4 }}>Sender (From)</div>
+                          <div style={{ fontSize: 13, marginBottom: 14 }}>{selected.from || "—"}</div>
+
+                          {selected.replyTo && (
+                            <>
+                              <div style={{ fontSize: 11, color: C.textMuted, textTransform: "uppercase", marginBottom: 4 }}>Reply-to</div>
+                              <div style={{ fontSize: 13, marginBottom: 14 }}>{selected.replyTo}</div>
+                            </>
+                          )}
+
+                          <div style={{ fontSize: 11, color: C.textMuted, textTransform: "uppercase", marginBottom: 4 }}>Recipient (To)</div>
+                          <div style={{ fontSize: 13, marginBottom: 14 }}>{threadModal.data.email}</div>
+
+                          <div style={{ fontSize: 11, color: C.textMuted, textTransform: "uppercase", marginBottom: 4 }}>Message ID</div>
+                          <div style={{ fontSize: 11, color: C.textDim, marginBottom: 14, wordBreak: "break-all" }}>{selected.messageId || "—"}</div>
+
+                          {selected.htmlContent ? (
+                            <div style={{ border: `1px solid ${C.border2}`, borderRadius: 8, padding: 14, maxHeight: 260, overflowY: "auto", background: "#fff" }}
+                              dangerouslySetInnerHTML={{ __html: selected.htmlContent }} />
+                          ) : (
+                            <div style={{ fontSize: 12, color: C.textDim }}>Body preview available nahi hai is email ke liye.</div>
+                          )}{selected.attachments && selected.attachments.length > 0 && (
+                            <div style={{ marginTop: 14 }}>
+                              <div style={{ fontSize: 11, color: C.textMuted, textTransform: "uppercase", marginBottom: 6 }}>📎 Attachments</div>
+                              <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                                {selected.attachments.map((a, i) => (
+                                  <a key={i} href={a.url} target="_blank" rel="noopener noreferrer" style={{ fontSize: 12, background: C.accentDim, color: C.accent, padding: "4px 10px", borderRadius: 5, textDecoration: "none" }}>📄 {a.name}</a>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+                        </div>
+
+                        {/* History */}
+                        <div style={{ padding: "0 24px 24px" }}>
+                          <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 14 }}>History</div>
+                          {selected.history.length === 0 ? (
+                            <div style={{ color: C.textDim, fontSize: 12 }}>Koi event nahi mila.</div>
+                          ) : selected.history.map((h, i) => (
+                            <div key={i} style={{ display: "flex", flexDirection: "column", gap: 2, paddingBottom: 16, marginBottom: 16, borderLeft: `2px solid ${C.border2}`, paddingLeft: 16, position: "relative" }}>
+                              <div style={{ position: "absolute", left: -7, top: 0, width: 12, height: 12, borderRadius: "50%", background: C.accent }} />
+                              <div style={{ fontWeight: 700, fontSize: 13, textTransform: "capitalize" }}>{h.event}</div>
+                              {h.ip && <div style={{ fontSize: 11, color: C.textMuted }}>{h.ip}</div>}
+                              <div style={{ fontSize: 11, color: C.textDim }}>{new Date(h.date).toLocaleString()}</div>
+                            </div>
+                          ))}
+                       </div>
+                      </div>
+
+                      {/* Reply box */}
+                      <div style={{ padding: "0 24px 24px" }}>
+                        {!replyBoxOpen ? (
+                        <button onClick={() => openReplyBox(selected)} style={{ padding: "9px 20px", borderRadius: 8, border: "none", background: C.accent, color: "#fff", fontWeight: 700, fontSize: 13, cursor: "pointer" }}>
+                            ↩️ Direct Reply
+                          </button>
+                        ) : (
+                          <div style={{ background: C.card, border: `1px solid ${C.border2}`, borderRadius: 10, padding: 16 }}>
+                            <div style={{ fontSize: 11, color: C.textMuted, marginBottom: 6, textTransform: "uppercase", letterSpacing: 1 }}>Subject</div>
+                          <input value={replySubject} readOnly disabled
+                              style={{ width: "100%", background: C.border2, border: `1px solid ${C.border2}`, color: C.textMuted, padding: "8px 12px", borderRadius: 6, fontSize: 13, fontWeight: 600, boxSizing: "border-box", marginBottom: 10, cursor: "not-allowed" }} />
+                            <div style={{ fontSize: 11, color: C.textMuted, marginBottom: 6, textTransform: "uppercase", letterSpacing: 1 }}>Body</div>
+                            <textarea value={replyBody} onChange={e => setReplyBody(e.target.value)}
+                              placeholder="Apna reply likho..."
+                              style={{ width: "100%", minHeight: 140, background: C.surface, border: `1px solid ${C.border2}`, color: C.text, padding: 12, borderRadius: 6, fontSize: 13, lineHeight: 1.6, resize: "vertical", boxSizing: "border-box", fontFamily: "monospace" }} />
+                              <div style={{ marginTop: 10, position: "relative" }}>
+                              <button onClick={() => setReplyAttachmentDropdownOpen(o => !o)} style={{ width: "100%", background: C.surface, border: `1px solid ${C.border2}`, color: C.textMuted, padding: "7px 10px", borderRadius: 6, fontSize: 12, cursor: "pointer", textAlign: "left", display: "flex", justifyContent: "space-between" }}>
+                                <span>📎 {replyAttachments.length > 0 ? `${replyAttachments.length} selected` : "Attach from Drive"}</span>
+                                <span>{replyAttachmentDropdownOpen ? "▲" : "▼"}</span>
+                              </button>
+                              {replyAttachmentDropdownOpen && (
+                                <div style={{ position: "absolute", left: 0, right: 0, marginTop: 4, zIndex: 50, background: C.card, border: `1px solid ${C.border2}`, borderRadius: 8, maxHeight: 200, overflowY: "auto" }}>
+                                  {driveFiles.map(f => (
+                                    <label key={f.id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 10px", borderBottom: `1px solid ${C.border}`, fontSize: 12 }}>
+                                      <input type="checkbox" checked={replyAttachments.some(a => a.id === f.id)}
+                                        onChange={() => setReplyAttachments(prev => prev.some(a => a.id === f.id) ? prev.filter(a => a.id !== f.id) : [...prev, { id: f.id, name: f.name, url: f.url }])} />
+                                      <div style={{ flex: 1 }}>{f.name}</div><span style={{ color: C.textDim, fontSize: 10 }}>{f.sizeLabel}</span>
+                                    </label>
+                                  ))}
+                                </div>
+                              )}
+                              {replyAttachments.length > 0 && (
+                                <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 8 }}>
+                                  {replyAttachments.map((a, i) => (
+                                    <div key={i} style={{ fontSize: 11, background: C.accentDim, color: C.accent, padding: "4px 8px", borderRadius: 5, display: "flex", alignItems: "center", gap: 6 }}>
+                                      📄 {a.name}
+                                      <button onClick={() => setReplyAttachments(prev => prev.filter(x => x.id !== a.id))} style={{ background: "none", border: "none", color: C.accent, cursor: "pointer", fontSize: 12 }}>✕</button>
+                                    </div>
+                                  ))}
+                                </div>
+                              )}
+                            </div>
+                            <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
+                              <button onClick={sendReply} disabled={sendingReply} style={{ padding: "9px 20px", borderRadius: 8, border: "none", background: sendingReply ? C.border2 : C.accent, color: "#fff", fontWeight: 700, fontSize: 13, cursor: sendingReply ? "not-allowed" : "pointer", display: "inline-flex", alignItems: "center", gap: 8 }}>
+                                {sendingReply && <Spinner size={13} />}
+                                {sendingReply ? "Sending..." : "🚀 Send Reply"}
+                              </button>
+                              <button onClick={() => setReplyBoxOpen(false)} disabled={sendingReply} style={{ padding: "9px 16px", borderRadius: 8, border: `1px solid ${C.border2}`, background: "transparent", color: C.textMuted, fontSize: 13, cursor: sendingReply ? "not-allowed" : "pointer" }}>Cancel</button>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )
+            })()}
+          </div>
+        </>
+      )}
 {logDetailsModal && (
         <>
           <div onClick={() => setLogDetailsModal(null)} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.75)", zIndex: 1000, backdropFilter: "blur(4px)" }} />

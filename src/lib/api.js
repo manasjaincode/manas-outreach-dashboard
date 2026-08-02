@@ -177,7 +177,9 @@ export const getEmailStats = (range = "30d") => callBackend("getEmailStats", { r
 export const syncEmailEvents = () => callBackend("syncEmailEvents");
 // ---- Analytics ----
 export const getAnalytics = () => callBackend("getAnalytics");
-
+export const sendReplyInThread = (batchId, email, subject, body, attachments) => callBackend("sendReplyInThread", { batchId, email, subject, body, attachments });export const getEmailThread = (batchId, email) => callBackend("getEmailThread", { batchId, email });
+export const listReplies = () => callBackend("listReplies", {});
+export const markRepliesViewed = (batchId, email) => callBackend("markRepliesViewed", { batchId, email });
 /**
  * Simple polling helper for job-based endpoints (leads scrape,
  * startup search, email send). Call this after starting a job to
