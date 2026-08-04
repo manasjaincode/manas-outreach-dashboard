@@ -134,13 +134,12 @@ const AREA_SUFFIXES = [
   'new area', 'old city', 'sector 1', 'sector 2',
   'nagar', 'colony', 'market', 'industrial area',
 ]
-
-export const searchPlacesMulti = async (category, city, targetCount, onProgress) => {
+export const searchPlacesMulti = async (category, city, targetCount, onProgress, country) => {
   const allPlaces = new Map()
   for (const suffix of AREA_SUFFIXES) {
     if (allPlaces.size >= targetCount) break
     const queryCity = suffix ? `${city} ${suffix}` : city
-    const query = `${category} in ${queryCity} India`
+    const query = country ? `${category} in ${queryCity}, ${country}` : `${category} in ${queryCity}`
     if (onProgress) onProgress(`Searching: ${query}...`)
     try {
       let pageToken = null
@@ -229,8 +228,8 @@ export const crawlWebsite = async (baseUrl) => {
   console.log(`✅ Crawled ${origin}: ${rawText.length} chars`)
 
   const emails = extractEmails(rawText)
-  const phoneMatches = rawText.match(/(?:\+91[\s\-]?)?[6-9]\d{9}|\+91[\s\-]?\d{10}|0\d{2,4}[\s\-]?\d{6,8}/g) || []
-  const phones = [...new Set(phoneMatches.map(p => p.trim()))]
+  const phoneMatches = rawText.match(/\+?\d[\d\s\-().]{7,16}\d/g) || []
+const phones = [...new Set(phoneMatches.map(p => p.trim()).filter(p => p.replace(/\D/g, "").length >= 8))]
 
   return { text: rawText.slice(0, 10000), emails, phones }
 }

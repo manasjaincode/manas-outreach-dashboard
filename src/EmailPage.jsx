@@ -31,7 +31,32 @@ const textToHtml = (text) => {
   html += "</div>"
   return html
 }
+const renderReplyBody = (raw) => {
+  if (!raw) return '<div style="color:#888;">No content available</div>'
+  const looksLikeHtml = /<[a-z][\s\S]*>/i.test(raw)
+  const esc = (s) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
 
+  if (looksLikeHtml) {
+    return `<div style="color:#1a1a1a;font-family:Arial,sans-serif;font-size:14px;line-height:1.6;">
+      <style>.gmail_quote, blockquote { color:#5f6368 !important; border-left:3px solid #dadce0; padding-left:12px; margin:8px 0 0 0; }</style>
+      ${raw}
+    </div>`
+  }
+
+  const lines = raw.split("\n")
+  const quoteIdx = lines.findIndex(l => /^on .+wrote:\s*$/i.test(l.trim()) || l.trim().startsWith(">"))
+  const newPart = quoteIdx === -1 ? lines : lines.slice(0, quoteIdx)
+  const quotedPart = quoteIdx === -1 ? [] : lines.slice(quoteIdx)
+
+  const newHtml = newPart.map(l => l.trim() === "" ? "<br/>" : `<div style="margin:2px 0;">${esc(l)}</div>`).join("")
+  const quotedHtml = quotedPart.length
+    ? `<div style="margin-top:12px;padding-left:12px;border-left:3px solid #dadce0;color:#5f6368;font-size:13px;">
+        ${quotedPart.map(l => l.trim() === "" ? "<br/>" : `<div style="margin:2px 0;">${esc(l.replace(/^>+\s?/, ""))}</div>`).join("")}
+      </div>`
+    : ""
+
+  return `<div style="color:#1a1a1a;font-family:Arial,sans-serif;font-size:14px;line-height:1.6;">${newHtml}${quotedHtml}</div>`
+}
 // ============================================================
 // CSV IMPORT — pure client-side parsing (no keys involved), same
 // as before. Rows still get funneled through api.addRecipients().
@@ -2264,17 +2289,7 @@ const healthColor = healthScore === null ? C.textMuted : healthScore >= 75 ? C.g
                       </div>
                     </div>
                   )
-                })}
-                {(() => {
-                            const replyMatch = replies.find(r => r.batchId === batchId && r.email === email)
-                            if (!replyMatch) return null
-                            const isFresh = replyMatch.viewCount < 4
-                            return (
-                              <div style={{ marginTop: 4, fontSize: 11, color: isFresh ? C.red : C.textDim, fontWeight: isFresh ? 700 : 400 }}>
-                                📩 Reply received {isFresh ? "🔴" : ""}
-                              </div>
-                            )
-                          })()}
+             })}
               </div>
             )
           )}
@@ -2374,15 +2389,32 @@ const healthColor = healthScore === null ? C.textMuted : healthScore >= 75 ? C.g
                             {sentMeta?.variantUsed && <span> · Draft variant {sentMeta.variantUsed}</span>}
                           </div>
                           <div style={{ fontSize: 11, color: C.textMuted }}>Last activity: {lastSeen ? new Date(lastSeen).toLocaleString() : "—"}</div>
-                          {(() => {
+                       {(() => {
                             const fuCount = sentLog.filter(s => s.batchId === batchId && s.email === email && String(s.variantUsed || "").toLowerCase().indexOf("followup") !== -1).length
                             return fuCount > 0 ? (
                               <div style={{ marginTop: 4, fontSize: 11, color: C.accent, fontWeight: 600 }}>🔁 {fuCount} follow-up{fuCount !== 1 ? "s" : ""} sent</div>
                             ) : null
-                          })()} </div>
+                          })()}
+                          {(() => {
+                            const replyMatch = replies.find(r => r.batchId === batchId && r.email === email)
+                            if (!replyMatch) return null
+                            const isFresh = replyMatch.viewCount < 4
+                            return (
+                              <div style={{ marginTop: 4, fontSize: 12, fontWeight: 800, color: "#FF1744" }}>
+                                📩 REPLY RECEIVED {isFresh ? "🔴 NEW" : ""}
+                              </div>
+                            )
+                          })()}
+                          </div>
                         <div style={{ display: "flex", gap: 6, alignItems: "flex-start" }}>
                           <button onClick={() => openThread(batchId, email)} style={{ fontSize: 11, padding: "4px 10px", borderRadius: 5, border: `1px solid ${C.accent}44`, background: C.accentDim, color: C.accent, cursor: "pointer" }}>👁 View Thread</button>
                           <div style={{ display: "flex", gap: 6, flexWrap: "wrap", justifyContent: "flex-end" }}>
+                            {(() => {
+                              const replyMatch = replies.find(r => r.batchId === batchId && r.email === email)
+                              return replyMatch ? (
+                                <span style={{ fontSize: 11, padding: "3px 10px", borderRadius: 5, background: "#FF174430", color: "#FF1744", fontWeight: 800, border: "1px solid #FF174466", animation: replyMatch.viewCount < 4 ? "pulseGlow 1.5s infinite" : "none" }}>📩 REPLY</span>
+                              ) : null
+                            })()}
                             {isSpam && <span style={{ fontSize: 11, padding: "3px 8px", borderRadius: 5, background: C.redDim, color: C.red, fontWeight: 700 }}>🚨 SPAM</span>}
                             {isUnsub && <span style={{ fontSize: 11, padding: "3px 8px", borderRadius: 5, background: C.yellowDim, color: C.yellow, fontWeight: 700 }}>🚫 UNSUBSCRIBED</span>}
                             {isBounced && <span style={{ fontSize: 11, padding: "3px 8px", borderRadius: 5, background: C.yellowDim, color: C.yellow, fontWeight: 700 }}>BOUNCED</span>}
@@ -3140,12 +3172,12 @@ const healthColor = healthScore === null ? C.textMuted : healthScore >= 75 ? C.g
                           <div style={{ fontSize: 11, color: C.textMuted, textTransform: "uppercase", marginBottom: 4 }}>Message ID</div>
                           <div style={{ fontSize: 11, color: C.textDim, marginBottom: 14, wordBreak: "break-all" }}>{selected.messageId || "—"}</div>
 
-                          {selected.htmlContent ? (
-                            <div style={{ border: `1px solid ${C.border2}`, borderRadius: 8, padding: 14, maxHeight: 260, overflowY: "auto", background: "#fff" }}
-                              dangerouslySetInnerHTML={{ __html: selected.htmlContent }} />
-                          ) : (
-                            <div style={{ fontSize: 12, color: C.textDim }}>Body preview available nahi hai is email ke liye.</div>
-                          )}{selected.attachments && selected.attachments.length > 0 && (
+                        {selected.htmlContent ? (
+  <div style={{ border: `1px solid ${C.border2}`, borderRadius: 8, padding: 14, maxHeight: 260, overflowY: "auto", background: "#fff" }}
+    dangerouslySetInnerHTML={{ __html: renderReplyBody(selected.htmlContent) }} />
+) : (
+  <div style={{ fontSize: 12, color: C.textDim }}>Body preview available nahi hai is email ke liye.</div>
+)}{selected.attachments && selected.attachments.length > 0 && (
                             <div style={{ marginTop: 14 }}>
                               <div style={{ fontSize: 11, color: C.textMuted, textTransform: "uppercase", marginBottom: 6 }}>📎 Attachments</div>
                               <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>

@@ -6,8 +6,7 @@ import AuthGate from "./AuthGate.jsx";   // 👈 ye add karo
 import { logout } from "./lib/auth.js";   // 👈 ye add karo
 import AdminPanel from "./AdminPanel.jsx";
 import { getCurrentUser } from "./lib/auth.js";
-import { startLeadScrapeRadius, pollJob, listLeads, startAdvancedSearch, getAdvancedSearchQuota } from "./lib/api.js";
-import { MapContainer, TileLayer, Marker, Popup } from "react-leaflet";
+import { startLeadScrape, startLeadScrapeRadius, pollJob, listLeads, startAdvancedSearch, getAdvancedSearchQuota, listReplies } from "./lib/api.js";import { MapContainer, TileLayer, Marker, Popup } from "react-leaflet";
 import "leaflet/dist/leaflet.css";
 import L from "leaflet";
 import loaderAnimation from "./assets/cat Mark loading.json";
@@ -159,7 +158,32 @@ function DashboardInner() {
   const [hovered, setHovered] = useState(null);
   const [transitioning, setTransitioning] = useState(false);
   const { showConfirm } = useFeedback();
+const [replies, setReplies] = useState([]);
+  const [replyBellOpen, setReplyBellOpen] = useState(false);
+  const replyBellRef = useRef(null);
+  const [pendingThreadOpen, setPendingThreadOpen] = useState(null);
 
+  const loadReplies = async () => {
+    try { const { replies: rows } = await listReplies(); setReplies(rows); } catch {}
+  };
+  useEffect(() => { loadReplies(); }, []);
+  useEffect(() => {
+    const t = setInterval(loadReplies, 30000);
+    return () => clearInterval(t);
+  }, []);
+  useEffect(() => {
+    const handler = (e) => { if (replyBellRef.current && !replyBellRef.current.contains(e.target)) setReplyBellOpen(false); };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, []);
+
+  const unreadReplies = replies.filter(r => r.viewCount < 4);
+
+  const openReplyFromBell = (r) => {
+    setReplyBellOpen(false);
+    changeTab("email");
+    setPendingThreadOpen({ batchId: r.batchId, email: r.email, ts: Date.now() });
+  };
   // Smooth fade+slide when switching tabs — iPhone-jaisa feel
   const changeTab = (id) => {
     if (id === active) return;
@@ -241,9 +265,43 @@ function DashboardInner() {
                 {active === "proposals" && "Generate psychology-driven proposals for client job posts"}
               </p>
             </div>
-            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-              <div style={{ width: 8, height: 8, borderRadius: "50%", background: COLORS.accent, boxShadow: `0 0 8px ${COLORS.accent}` }} />
-              <span style={{ fontSize: 12, color: COLORS.textSecondary }}>System ready</span>
+          <div style={{ display: "flex", alignItems: "center", gap: 18, position: "relative" }} ref={replyBellRef}>
+              <button onClick={() => setReplyBellOpen(o => !o)} style={{ position: "relative", background: "none", border: "none", cursor: "pointer", fontSize: 18, color: COLORS.text, padding: 4 }}>
+                🔔
+                {unreadReplies.length > 0 && (
+                  <span style={{ position: "absolute", top: -2, right: -4, background: COLORS.red, color: "#fff", fontSize: 10, fontWeight: 700, borderRadius: "50%", width: 16, height: 16, display: "flex", alignItems: "center", justifyContent: "center" }}>
+                    {unreadReplies.length > 9 ? "9+" : unreadReplies.length}
+                  </span>
+                )}
+              </button>
+
+              {replyBellOpen && (
+                <div style={{ position: "absolute", top: 32, right: 0, width: 340, maxHeight: 400, overflowY: "auto", background: COLORS.card, border: `1px solid ${COLORS.border}`, borderRadius: 10, boxShadow: "0 12px 32px rgba(0,0,0,0.5)", zIndex: 1000 }}>
+                  <div style={{ padding: "10px 14px", borderBottom: `1px solid ${COLORS.border}`, fontSize: 12, fontWeight: 700, color: COLORS.textMuted, textTransform: "uppercase", letterSpacing: 1 }}>
+                    📩 Replies ({unreadReplies.length} new)
+                  </div>
+                  {replies.length === 0 ? (
+                    <div style={{ padding: 20, color: COLORS.textMuted, fontSize: 12, textAlign: "center" }}>Koi reply nahi aayi abhi</div>
+                  ) : replies.slice(0, 20).map((r) => (
+                    <div key={r.id} onClick={() => openReplyFromBell(r)} style={{
+                      padding: "10px 14px", borderBottom: `1px solid ${COLORS.border}`, cursor: "pointer",
+                      background: r.viewCount < 4 ? COLORS.redDim : "transparent",
+                    }}>
+                      <div style={{ display: "flex", justifyContent: "space-between", gap: 8 }}>
+                        <span style={{ fontSize: 12, fontWeight: 700, color: r.viewCount < 4 ? COLORS.red : COLORS.text }}>{r.email}</span>
+                        <span style={{ fontSize: 10, color: COLORS.textMuted, whiteSpace: "nowrap" }}>{new Date(r.receivedAt).toLocaleDateString()}</span>
+                      </div>
+                      <div style={{ fontSize: 11, color: COLORS.textSecondary, marginTop: 2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.subject}</div>
+                      <div style={{ fontSize: 11, color: COLORS.textMuted, marginTop: 2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.preview}</div>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                <div style={{ width: 8, height: 8, borderRadius: "50%", background: COLORS.accent, boxShadow: `0 0 8px ${COLORS.accent}` }} />
+                <span style={{ fontSize: 12, color: COLORS.textSecondary }}>System ready</span>
+              </div>
             </div>
           </header>
 
@@ -257,7 +315,7 @@ transform: transitioning ? "translateY(6px)" : "none",
             {active === "overview" && <OverviewPage setActive={changeTab} />}
             {active === "leads" && <LeadsPage />}
             {active === "totalLeads" && <TotalLeadsPage />}
-            {active === "email" && <EmailPage leads={[]} />}
+        {active === "email" && <EmailPage leads={[]} openThreadRequest={pendingThreadOpen} onThreadRequestHandled={() => setPendingThreadOpen(null)} />}
             {active === "proposals" && <ProposalGenerator />}
             {active === "admin" && <AdminPanel />}
           </div>
@@ -429,6 +487,8 @@ const clearActiveJob = () => { try { localStorage.removeItem(ACTIVE_JOB_KEY); } 
 function LeadsPage() {
   const { showToast } = useFeedback();
   const [keywords, setKeywords] = useState([]);
+  const [bulkFillText, setBulkFillText] = useState("")
+const [showBulkFill, setShowBulkFill] = useState(false)
   const [kwInput, setKwInput] = useState("");
   const [category, setCategory] = useState("");
   const [cities, setCities] = useState("");
@@ -447,7 +507,7 @@ const [advElapsedSec, setAdvElapsedSec] = useState(0);
 const [advQuota, setAdvQuota] = useState(null); // { used, cap }
 const pollCleanupRef = useRef(null);
 const secsTimerRef = useRef(null);
-
+const [country, setCountry] = useState("") // khaali = global, koi bhi country type kar sakte ho
 // Shared resume/attach logic — jobId + jobType diya, chahe naya job ho ya
 // resume kiya gaya purana job, dono isi function se guzarte hain.
 const resumeJobPolling = (jobId, jobType, startedAt) => {
@@ -464,16 +524,20 @@ const resumeJobPolling = (jobId, jobType, startedAt) => {
     jobId,
     (job) => {
       let progressText = job.status;
-      try {
-        const p = JSON.parse(job.progress || "{}");
-        if (jobType === "radius") {
-          if (p.phase === "searching") progressText = `Searching area ${p.gridIndex ?? 0}/${(p.gridPoints||[]).length || 1}...`;
-          else if (p.phase === "enriching") progressText = `Enriching ${p.enrichIndex ?? 0}/${(p.queue||[]).length ?? 0} leads...`;
-        } else if (jobType === "advanced") {
-          if (p.phase === "searching") progressText = "Searching...";
-          else if (p.phase === "enriching") progressText = `Finding emails ${p.enrichIndex ?? 0}/${(p.queue||[]).length ?? 0} (3-layer)...`;
-        }
-      } catch {}
+     try {
+  const p = JSON.parse(job.progress || "{}");
+ if (jobType === "city") {
+  if (p.phase === "searching") progressText = `Searching city ${(p.cityIndex ?? 0) + 1}...`;
+  else if (p.phase === "enriching") progressText = `Enriching ${p.enrichIndex ?? 0}/${(p.queue||[]).length ?? 0} leads...`;
+
+  } else if (jobType === "radius") {
+    if (p.phase === "searching") progressText = `Searching area ${p.gridIndex ?? 0}/${(p.gridPoints||[]).length || 1}...`;
+    else if (p.phase === "enriching") progressText = `Enriching ${p.enrichIndex ?? 0}/${(p.queue||[]).length ?? 0} leads...`;
+  } else if (jobType === "advanced") {
+    if (p.phase === "searching") progressText = "Searching...";
+    else if (p.phase === "enriching") progressText = `Finding emails ${p.enrichIndex ?? 0}/${(p.queue||[]).length ?? 0} (3-layer)...`;
+  }
+} catch {}
       if (isAdvanced) setAdvStatus(progressText); else setJobStatus(progressText);
     },
     async (job) => {
@@ -538,7 +602,30 @@ useEffect(() => {
       setKwInput("");
     }
   };
+const parseBulkFill = () => {
+  const lines = bulkFillText.split("\n")
+  const getField = (label) => {
+    const line = lines.find(l => l.toLowerCase().trim().startsWith(label.toLowerCase() + ":"))
+    return line ? line.split(":").slice(1).join(":").trim() : ""
+  }
 
+  const cat = getField("Category")
+  const ctry = getField("Country")
+  const citiesRaw = getField("Cities")
+  const kwRaw = getField("Keywords")
+
+  if (cat) setCategory(cat)
+  if (ctry) setCountry(ctry)
+  if (citiesRaw) setCities(citiesRaw) // already comma-separated, direct set ho jayega
+  if (kwRaw) {
+    const kwList = kwRaw.split(",").map(k => k.trim()).filter(Boolean)
+    setKeywords(prev => [...new Set([...prev, ...kwList])])
+  }
+
+  setBulkFillText("")
+  setShowBulkFill(false)
+  showToast("Fields bhar diye gaye!", "success")
+}
   const updateLead = (index, patch) => setLeads(prev => prev.map((l, i) => i === index ? { ...l, ...patch } : l));
   const editField = (index, field) => (val) => updateLead(index, { [field]: val });
   const editPerson = (index, pi, field) => (val) => {
@@ -553,52 +640,30 @@ useEffect(() => {
   const addPersonSlot = (index) => setLeads(prev => prev.map((l, i) => i !== index ? l : { ...l, people: [...(l.people || []), { name: "", title: "", email: "" }] }));
 
   const startScrape = async () => {
-if (!category || !cities) return showToast("Category aur cities daalo", "error");    
-const target = parseInt(maxResults) || 20;
-    const cityList = cities.split(",").map(c => c.trim()).filter(Boolean);
-    setLeads([]);
-    setStatus("Starting...");
-    let runningIndex = 0;
+  if (!category || !cities) return showToast("Category aur cities daalo", "error");
+  const cityList = cities.split(",").map(c => c.trim()).filter(Boolean);
+  setLeads([]);
+  setJobStatus("Starting...");
+  setElapsedSec(0);
 
-    for (const city of cityList) {
-      try {
-        const places = await searchPlacesMulti(category, city, target, setStatus);
-        if (!places.length) { setStatus(`${city}: koi result nahi mila`); continue; }
-        setStatus(`${city}: ${places.length} places mile — details fetch ho raha hai...`);
+  let jobId;
+  try {
+    const res = await startLeadScrape({
+      category,
+      cities: cityList,
+      maxResults: parseInt(maxResults) || 20,
+      country,
+    });
+    jobId = res.jobId;
+  } catch (err) {
+    setJobStatus(null);
+    return showToast(err.message, "error");
+  }
 
-        const basicLeads = [];
-        for (const place of places) {
-          const det = await getPlaceDetails(place.place_id);
-          const details = det.result || {};
-          basicLeads.push({
-            name: place.name, category, city,
-            phone: details.formatted_phone_number || details.international_phone_number || "",
-            website: details.website || "", email: "", allEmails: [], points: [], people: [], linkedinUrl: "",
-            address: details.formatted_address || "", rating: place.rating || "",
-            keywords_found: keywords.filter(kw => JSON.stringify(details).toLowerCase().includes(kw.toLowerCase())),
-            enriched: false, enriching: false,
-          });
-        }
-        setLeads(prev => [...prev, ...basicLeads]);
-
-        for (let i = 0; i < basicLeads.length; i++) {
-          const idx = runningIndex + i;
-          setStatus(`${city}: enriching ${i + 1}/${basicLeads.length} — ${basicLeads[i].name}`);
-          updateLead(idx, { enriching: true });
-          try {
-            const enriched = await enrichLead(basicLeads[i]);
-            updateLead(idx, { ...enriched, enriching: false });
-          } catch { updateLead(idx, { enriching: false }); }
-          await new Promise(r => setTimeout(r, 400));
-        }
-        runningIndex += basicLeads.length;
-      } catch (err) {
-if (err.message === 'REQUEST_DENIED') { showToast("Google Maps API key issue", "error"); setStatus(null); return; }
-        setStatus(`Error: ${err.message}`);
-      }
-    }
-    setStatus(null);
-  };
+  const startedAt = Date.now();
+  saveActiveJob({ jobId, jobType: "city", startedAt, category, cities, maxResults: parseInt(maxResults) || 20 });
+  resumeJobPolling(jobId, "city", startedAt);
+};
   const [elapsedSec, setElapsedSec] = useState(0);
 
 const startRadiusScrape = async () => {
@@ -609,8 +674,8 @@ const startRadiusScrape = async () => {
 
   let jobId;
   try {
-    const res = await startLeadScrapeRadius(pincode, radiusKm, category, parseInt(maxResults) || 20);
-    jobId = res.jobId;
+const res = await startLeadScrapeRadius(pincode, radiusKm, category, parseInt(maxResults) || 20, country);    jobId = res.jobId;
+
   } catch (err) {
     setJobStatus(null);
     return showToast(err.message, "error");
@@ -632,14 +697,15 @@ const startAdvancedSearchRun = async () => {
 
   let jobId;
   try {
-    const res = await startAdvancedSearch({
-      searchMode: advancedSubMode,
-      category,
-      cities: advancedSubMode === "city" ? cities.split(",").map(c => c.trim()).filter(Boolean) : [],
-      pincode: advancedSubMode === "radius" ? pincode : "",
-      radiusKm: advancedSubMode === "radius" ? radiusKm : 0,
-      maxResults: parseInt(maxResults) || 20,
-    });
+  const res = await startAdvancedSearch({
+  searchMode: advancedSubMode,
+  category,
+  cities: advancedSubMode === "city" ? cities.split(",").map(c => c.trim()).filter(Boolean) : [],
+  pincode: advancedSubMode === "radius" ? pincode : "",
+  radiusKm: advancedSubMode === "radius" ? radiusKm : 0,
+  maxResults: parseInt(maxResults) || 20,
+  country,
+});
     jobId = res.jobId;
   } catch (err) {
     clearInterval(timer);
@@ -690,6 +756,7 @@ navigator.clipboard.writeText([headers.join("\t"),...rows].join("\n")).then(()=>
     <div>
       <div style={{ background:COLORS.card,border:`1px solid ${COLORS.border}`,borderRadius:12,padding:"22px 24px",marginBottom:20 }}>
                {/* 👇 YAHAN — toggle daalo, card ke andar sabse pehli cheez */}
+           
         <div style={{ display: "flex", gap: 8, marginBottom: 16 }}>
         {["city", "radius", "advanced"].map(m => (
   <button key={m} onClick={() => setMode(m)}
@@ -703,12 +770,46 @@ navigator.clipboard.writeText([headers.join("\t"),...rows].join("\n")).then(()=>
   </button>
 ))}
         </div>
-   {mode === "city" && (
-          <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr",gap:16,marginBottom:16 }}>
-            <div><label style={lS}>Industry / Category</label><input style={iS} value={category} onChange={e=>setCategory(e.target.value)} placeholder="e.g. interior designers, CA firms, gyms" /></div>
-            <div><label style={lS}>Cities (comma separated)</label><input style={iS} value={cities} onChange={e=>setCities(e.target.value)} placeholder="e.g. Indore, Bhopal, Pune" /></div>
-          </div>
-        )}
+        <div style={{ marginBottom: 16 }}>
+  <button onClick={() => setShowBulkFill(v => !v)} style={{
+    padding: "6px 14px", borderRadius: 7, fontSize: 12, cursor: "pointer",
+    border: `1px solid ${COLORS.accent}44`, background: COLORS.accentDim, color: COLORS.accent,
+  }}>
+    📋 {showBulkFill ? "Hide" : "Bulk Paste (GPT se copy karo)"}
+  </button>
+
+  {showBulkFill && (
+    <div style={{ marginTop: 10 }}>
+      <textarea
+        value={bulkFillText}
+        onChange={e => setBulkFillText(e.target.value)}
+        placeholder={`Category: interior designers\nCountry: USA\nCities: New York, Los Angeles, Chicago\nKeywords: modern design, luxury homes, renovation`}
+        style={{
+          width: "100%", height: 120, background: COLORS.card, border: `1px solid ${COLORS.border}`,
+          color: COLORS.text, padding: "10px 12px", borderRadius: 8, fontSize: 12,
+          fontFamily: "monospace", boxSizing: "border-box", resize: "vertical", lineHeight: 1.6,
+        }}
+      />
+      <button onClick={parseBulkFill} disabled={!bulkFillText.trim()} style={{
+        marginTop: 8, padding: "8px 18px", background: COLORS.accent, border: "none",
+        borderRadius: 7, color: "#fff", fontSize: 12, fontWeight: 600,
+        cursor: bulkFillText.trim() ? "pointer" : "not-allowed", opacity: bulkFillText.trim() ? 1 : 0.5,
+      }}>
+        ✅ Fill Fields
+      </button>
+      <div style={{ fontSize: 10, color: COLORS.textMuted, marginTop: 6 }}>
+        Format follow karo — "Category:", "Country:", "Cities:", "Keywords:" labels zaroori hain, order koi bhi ho sakta hai.
+      </div>
+    </div>
+  )}
+</div>
+{mode === "city" && (
+  <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:16,marginBottom:16 }}>
+    <div><label style={lS}>Industry / Category</label><input style={iS} value={category} onChange={e=>setCategory(e.target.value)} placeholder="e.g. interior designers, CA firms, gyms" /></div>
+    <div><label style={lS}>Cities (comma separated)</label><input style={iS} value={cities} onChange={e=>setCities(e.target.value)} placeholder="e.g. Indore, Bhopal, Pune" /></div>
+    <div><label style={lS}>Country (optional — khaali chhodo global ke liye)</label><input style={iS} value={country} onChange={e=>setCountry(e.target.value)} placeholder="e.g. USA, UK, Australia" /></div>
+  </div>
+)}
 
        {mode === "radius" && (
   <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 16, marginBottom: 16 }}>
@@ -726,6 +827,10 @@ navigator.clipboard.writeText([headers.join("\t"),...rows].join("\n")).then(()=>
         {[2,4,6,8,10].map(r => <option key={r} value={r}>{r} km</option>)}
       </select>
     </div>
+    <div>
+  <label style={lS}>Country (optional — khaali chhodo global ke liye)</label>
+  <input style={iS} value={country} onChange={e=>setCountry(e.target.value)} placeholder="e.g. USA, UK, Australia (ya khaali)" />
+</div>
   </div>
 )}
 {mode === "advanced" && (
@@ -743,8 +848,11 @@ navigator.clipboard.writeText([headers.join("\t"),...rows].join("\n")).then(()=>
     <div style={{ display: "grid", gridTemplateColumns: advancedSubMode === "city" ? "1fr 1fr" : "1fr 1fr 1fr", gap: 16, marginBottom: 16 }}>
       <div><label style={lS}>Industry / Category</label><input style={iS} value={category} onChange={e=>setCategory(e.target.value)} placeholder="e.g. interior designers, CA firms, gyms" /></div>
       {advancedSubMode === "city" ? (
-        <div><label style={lS}>Cities (comma separated)</label><input style={iS} value={cities} onChange={e=>setCities(e.target.value)} placeholder="e.g. Indore, Bhopal, Pune" /></div>
-      ) : (
+  <>
+    <div><label style={lS}>Cities (comma separated)</label><input style={iS} value={cities} onChange={e=>setCities(e.target.value)} placeholder="e.g. Indore, Bhopal, Pune" /></div>
+    <div><label style={lS}>Country (optional)</label><input style={iS} value={country} onChange={e=>setCountry(e.target.value)} placeholder="e.g. USA, UK, Australia" /></div>
+  </>
+) : (
         <>
           <div><label style={lS}>Pincode</label><input style={iS} value={pincode} onChange={e=>setPincode(e.target.value)} placeholder="e.g. 452001" maxLength={6} /></div>
           <div><label style={lS}>Radius (km)</label><select style={iS} value={radiusKm} onChange={e=>setRadiusKm(Number(e.target.value))}>{[2,4,6,8,10].map(r=><option key={r} value={r}>{r} km</option>)}</select></div>
@@ -767,8 +875,18 @@ navigator.clipboard.writeText([headers.join("\t"),...rows].join("\n")).then(()=>
                   {kw}<button onClick={()=>setKeywords(keywords.filter((_,j)=>j!==i))} style={{ background:"none",border:"none",color:COLORS.accent,cursor:"pointer",fontSize:14,lineHeight:1,padding:0 }}>×</button>
                 </span>
               ))}
-              <input id="kwi" value={kwInput} onChange={e=>setKwInput(e.target.value)} onKeyDown={addKw} style={{ border:"none",background:"none",color:COLORS.text,fontSize:13,outline:"none",minWidth:100,fontFamily:"inherit" }} placeholder={keywords.length?"":"Type + Enter..."} />
-            </div>
+<input id="kwi" value={kwInput} onChange={e=>setKwInput(e.target.value)} onKeyDown={addKw}
+  onPaste={(e) => {
+    const pasted = e.clipboardData.getData("text")
+    if (pasted.includes(",")) {
+      e.preventDefault()
+      const newKws = pasted.split(",").map(k => k.trim()).filter(Boolean)
+      setKeywords(prev => [...new Set([...prev, ...newKws])])
+      setKwInput("")
+    }
+  }}
+  style={{ border:"none",background:"none",color:COLORS.text,fontSize:13,outline:"none",minWidth:100,fontFamily:"inherit" }}
+  placeholder={keywords.length?"":"Type + Enter..."} />            </div>
           </div>
           <div><label style={lS}>Google Maps API Key</label><input style={iS} type="password" placeholder="AIza..." /></div>
         </div>
