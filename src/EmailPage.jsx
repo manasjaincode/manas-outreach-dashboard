@@ -2027,10 +2027,17 @@ const healthColor = healthScore === null ? C.textMuted : healthScore >= 75 ? C.g
                         <div style={{ fontSize: 11, color: C.textMuted, marginTop: 2 }}>
                           Batch: {job.batchId} · {job.sent}/{job.total} sent · by {job.createdBy}
                         </div>
-                        <div style={{ fontSize: 11, color: C.textDim, marginTop: 2 }}>
+                       <div style={{ fontSize: 11, color: C.textDim, marginTop: 2 }}>
                           Gap: {job.gapMode === "manual" ? `fixed ${job.manualGapSec}s` : `random ${job.autoMinSec}-${job.autoMaxSec}s`}
                           {" · "}Started: {job.createdAt ? new Date(job.createdAt).toLocaleString() : "—"}
+                          {job.scheduledFor && <span> · 🕓 Scheduled for: {new Date(job.scheduledFor).toLocaleString()}</span>}
                         </div>
+                        {job.recipients?.length > 0 && (
+                          <div style={{ fontSize: 11, color: C.textMuted, marginTop: 4 }}>
+                            To: {job.recipients.slice(0, 3).map(r => r.name ? `${r.name} <${r.email}>` : r.email).join(", ")}
+                            {job.recipients.length > 3 && ` +${job.recipients.length - 3} more`}
+                          </div>
+                        )}
                         {job.resultSummary && <div style={{ fontSize: 11, color: C.textMuted, marginTop: 2 }}>{job.resultSummary}</div>}
                       </div>
                       <span style={{ fontSize: 10, padding: "3px 8px", borderRadius: 5, background: statusColor + "20", color: statusColor, fontWeight: 700, textTransform: "uppercase" }}>{job.status}</span>
