@@ -175,7 +175,21 @@ export const saveTemplate = (payload) => call("saveTemplate", payload)
 // { id?, industry, category, variantIdx, subject, body }
 
 export const deleteTemplate = (id) => call("deleteTemplate", { id })
+// ============================================================
+// RECIPIENT GROUPS
+// ============================================================
 
+export const listGroups = () => call("listGroups")
+export const createGroup = (name, templateIndustry, templateCategory) =>
+  call("createGroup", { name, templateIndustry, templateCategory })
+export const updateGroupTemplate = (id, templateIndustry, templateCategory) =>
+  call("updateGroupTemplate", { id, templateIndustry, templateCategory })
+export const renameGroup = (id, name) => call("renameGroup", { id, name })
+export const deleteGroup = (id) => call("deleteGroup", { id })
+export const addRecipientsToGroup = (groupId, recipientIds) => call("addRecipientsToGroup", { groupId, recipientIds })
+export const removeRecipientsFromGroup = (groupId, recipientIds) => call("removeRecipientsFromGroup", { groupId, recipientIds })
+export const saveFollowUpTemplate = (payload) => call("saveFollowUpTemplate", payload) // dayIndex bhi payload mein
+export const sendFollowUpNow = (payload) => call("sendFollowUpNow", payload) // variantIdx "day-variant" format mein
 // ============================================================
 // RECIPIENTS
 // ============================================================

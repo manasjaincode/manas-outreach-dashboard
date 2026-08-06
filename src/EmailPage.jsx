@@ -394,6 +394,8 @@ const [rotateVariants, setRotateVariants] = useState(true)
   const [groups, setGroups] = useState([])
   const [loadingGroups, setLoadingGroups] = useState(false)
   const [newGroupName, setNewGroupName] = useState("")
+  const [newGroupIndustry, setNewGroupIndustry] = useState("")
+  const [newGroupCategory, setNewGroupCategory] = useState("")
   const [creatingGroup, setCreatingGroup] = useState(false)
   const [selectedGroupId, setSelectedGroupId] = useState(null)
   const [groupActionId, setGroupActionId] = useState(null)
@@ -412,16 +414,24 @@ const [rotateVariants, setRotateVariants] = useState(true)
   useEffect(() => { loadGroups() }, [])
   useEffect(() => { if (activeView === "groups") loadGroups() }, [activeView])
 
-  const handleCreateGroup = async () => {
+const handleCreateGroup = async () => {
     if (!newGroupName.trim()) { showToast("Group ka naam likho pehle!", "error"); return }
     setCreatingGroup(true)
     try {
-      await api.createGroup(newGroupName.trim())
-      setNewGroupName("")
+      await api.createGroup(newGroupName.trim(), newGroupIndustry, newGroupCategory)
+      setNewGroupName(""); setNewGroupIndustry(""); setNewGroupCategory("")
       showToast("Group ban gaya!", "success")
       await loadGroups()
     } catch (err) { showApiError(err) }
     setCreatingGroup(false)
+  }
+
+  const handleUpdateGroupTemplate = async (groupId, industry, category) => {
+    try {
+      await api.updateGroupTemplate(groupId, industry, category)
+      showToast("Group ka template selection update ho gaya!", "success")
+      await loadGroups()
+    } catch (err) { showApiError(err) }
   }
 
   const handleRenameGroup = async (id) => {
@@ -588,16 +598,23 @@ const [rotateVariants, setRotateVariants] = useState(true)
 
     const sortedRows = [...bulkRows].sort((a, b) => new Date(a.dateTime) - new Date(b.dateTime))
 
-    setBulkSubmitting(true)
+ setBulkSubmitting(true)
     const results = []
     for (const row of sortedRows) {
       const group = groups.find(g => g.id === row.groupId)
       const groupMembers = recipients.filter(r => (r.groupIds || []).includes(row.groupId))
+
+      const groupTemplates = (group?.templateIndustry && group?.templateCategory)
+        ? (templateLibrary[group.templateIndustry]?.[group.templateCategory] || [])
+        : templates
+      const sendSubject = (group?.templateIndustry && group?.templateCategory && groupTemplates[0]?.subject) ? groupTemplates[0].subject : subjectOverride
+      const sendBody = (group?.templateIndustry && group?.templateCategory && groupTemplates[0]?.body) ? groupTemplates[0].body : bodyOverride
+
       try {
         await api.startEmailSend({
-          subject: subjectOverride,
-          body: bodyOverride,
-          templates: templates.filter(t => t.subject && t.body).map(t => ({ subject: t.subject, body: t.body })),
+          subject: sendSubject,
+          body: sendBody,
+          templates: groupTemplates.filter(t => t.subject && t.body).map(t => ({ subject: t.subject, body: t.body })),
           rotateVariants,
           recipients: groupMembers.map(r => ({ email: r.email, name: r.name, company: r.company, city: r.city, customLine: r.customLine })),
           senders,
@@ -694,41 +711,54 @@ const [sentLog, setSentLog] = useState([])
   useEffect(() => { loadFollowUps() }, [])
 
   // ── Follow-up templates (4 rotating variants, no industry/category) ──
-  const [followUpTemplates, setFollowUpTemplates] = useState([null, null, null, null])
+const FOLLOWUP_DAYS = [1, 3, 5, 7]
+  const [followUpTemplates, setFollowUpTemplates] = useState(
+    FOLLOWUP_DAYS.map(() => [null, null, null, null]) // [day][variant]
+  )
   const [loadingFollowUpTemplates, setLoadingFollowUpTemplates] = useState(false)
-  const [ftEditingIdx, setFtEditingIdx] = useState(null)
+  const [ftSelectedDay, setFtSelectedDay] = useState(0)
+  const [ftEditingVariant, setFtEditingVariant] = useState(null) // variant idx within selected day
   const [ftSubject, setFtSubject] = useState("")
   const [ftBody, setFtBody] = useState("")
 
-  const loadFollowUpTemplates = async () => {
+const loadFollowUpTemplates = async () => {
     setLoadingFollowUpTemplates(true)
     try {
       const { templates: rows } = await api.listFollowUpTemplates()
-      const slots = [0, 1, 2, 3].map((idx) => {
-        const found = rows.find((r) => Number(r.variantIdx) === idx)
-        return found ? { id: found.id, variantIdx: idx, subject: found.subject, body: found.body } : { id: null, variantIdx: idx, subject: "", body: "" }
-      })
-      setFollowUpTemplates(slots)
+      const grid = FOLLOWUP_DAYS.map((_, dayIdx) =>
+        [0, 1, 2, 3].map((vIdx) => {
+          const found = rows.find((r) => Number(r.dayIndex) === dayIdx && Number(r.variantIdx) === vIdx)
+          return found ? { id: found.id, dayIndex: dayIdx, variantIdx: vIdx, subject: found.subject, body: found.body } : { id: null, dayIndex: dayIdx, variantIdx: vIdx, subject: "", body: "" }
+        })
+      )
+      setFollowUpTemplates(grid)
     } catch (err) { showApiError(err) }
     setLoadingFollowUpTemplates(false)
   }
   useEffect(() => { if (activeView === "followups") { loadFollowUps(); loadFollowUpTemplates() } }, [activeView])
 
-  const ftOpenVariant = (idx) => {
-    const v = followUpTemplates[idx]
-    setFtEditingIdx(idx)
+const ftOpenVariant = (dayIdx, vIdx) => {
+    const v = followUpTemplates[dayIdx][vIdx]
+    setFtSelectedDay(dayIdx)
+    setFtEditingVariant(vIdx)
     setFtSubject(v?.subject || "")
     setFtBody(v?.body || "")
   }
 
   const ftSaveVariant = async () => {
-    if (ftEditingIdx === null) return
+    if (ftEditingVariant === null) return
     if (!ftSubject.trim() || !ftBody.trim()) { showToast("Subject aur Body dono bharo — variant save nahi hua!", "error"); return }
-    const existing = followUpTemplates[ftEditingIdx]
+    const existing = followUpTemplates[ftSelectedDay][ftEditingVariant]
     try {
-      const { template } = await api.saveFollowUpTemplate({ id: existing?.id || undefined, variantIdx: ftEditingIdx, subject: ftSubject, body: ftBody })
-      setFollowUpTemplates((prev) => prev.map((v, i) => i === ftEditingIdx ? { id: template.id, variantIdx: ftEditingIdx, subject: ftSubject, body: ftBody } : v))
-      showToast(`Follow-up variant ${ftEditingIdx + 1} saved!`, "success")
+      const { template } = await api.saveFollowUpTemplate({
+        id: existing?.id || undefined, dayIndex: ftSelectedDay, variantIdx: ftEditingVariant, subject: ftSubject, body: ftBody,
+      })
+      setFollowUpTemplates((prev) => {
+        const copy = prev.map(day => [...day])
+        copy[ftSelectedDay][ftEditingVariant] = { id: template.id, dayIndex: ftSelectedDay, variantIdx: ftEditingVariant, subject: ftSubject, body: ftBody }
+        return copy
+      })
+      showToast(`Day ${FOLLOWUP_DAYS[ftSelectedDay]} — Variant ${ftEditingVariant + 1} saved!`, "success")
     } catch (err) { showApiError(err) }
   }
 
@@ -792,7 +822,23 @@ const [sentLog, setSentLog] = useState([])
     } catch (err) { showApiError(err) }
     setFollowUpActionId(null)
   }
-
+const handleTrackingFollowUpToggle = async (batchId, email) => {
+    const row = followUps.find(f => f.initialBatchId === batchId && f.recipientEmail === email)
+    if (!row) { showToast("Yeh recipient follow-up mein enrolled nahi hai", "error"); return }
+    setFollowUpActionId(row.id)
+    try {
+      if (row.status === "active") {
+        await api.updateFollowUp(row.id, { status: "paused" })
+        showToast("Follow-up rok diya", "success")
+      } else {
+        const next = new Date(); next.setDate(next.getDate() + 1)
+        await api.updateFollowUp(row.id, { mode: "auto", status: "active", stoppedReason: "", followUpsSent: row.followUpsSent || 0, nextFollowUpAt: next.toISOString() })
+        showToast("Follow-up wapas chalu ho gaya", "success")
+      }
+      await loadFollowUps()
+    } catch (err) { showApiError(err) }
+    setFollowUpActionId(null)
+  }
   const deleteFollowUpRow = async (row) => {
     const ok = await showConfirm(`${row.recipientEmail} ko follow-up tracking se hata dein?`)
     if (!ok) return
@@ -802,12 +848,11 @@ const [sentLog, setSentLog] = useState([])
     setFollowUpActionId(null)
   }
 
-  const openSendNowModal = (row) => {
+const openSendNowModal = (row) => {
     setSendNowTarget(row)
-    setSendNowVariantIdx(0)
-    const v = followUpTemplates[0]
-    setSendNowSubject(v?.subject || "")
-    setSendNowBody(v?.body || "")
+    setSendNowVariantIdx("")
+    setSendNowSubject("")
+    setSendNowBody("")
   }
 
   const confirmSendNow = async () => {
@@ -2018,18 +2063,28 @@ const healthColor = healthScore === null ? C.textMuted : healthScore >= 75 ? C.g
 {/* ── GROUPS ── */}
       {activeView === "groups" && (
 <div style={{ display: "grid", gridTemplateColumns: "300px 1fr", height: "calc(100vh - 210px)" }}>          <div style={{ borderRight: `1px solid ${C.border}`, overflowY: "auto", background: C.surface }}>
-            <div style={{ padding: 16, borderBottom: `1px solid ${C.border}` }}>
+       <div style={{ padding: 16, borderBottom: `1px solid ${C.border}` }}>
               <div style={{ fontSize: 11, color: C.textMuted, marginBottom: 8, textTransform: "uppercase", letterSpacing: 1 }}>New Group</div>
-              <div style={{ display: "flex", gap: 6 }}>
-                <input value={newGroupName} onChange={e => setNewGroupName(e.target.value)}
-                  onKeyDown={e => e.key === "Enter" && handleCreateGroup()}
-                  placeholder="e.g. Batch A - IT Companies"
-                  style={{ flex: 1, background: C.card, border: `1px solid ${C.border2}`, color: C.text, padding: "7px 10px", borderRadius: 6, fontSize: 12 }} />
-                <button onClick={handleCreateGroup} disabled={creatingGroup} style={{
-                  background: C.accent, border: "none", color: "#fff", padding: "7px 12px", borderRadius: 6,
-                  cursor: creatingGroup ? "not-allowed" : "pointer", fontSize: 13, fontWeight: 700, opacity: creatingGroup ? 0.6 : 1,
-                }}>{creatingGroup ? <Spinner size={11} /> : "+"}</button>
-              </div>
+              <input value={newGroupName} onChange={e => setNewGroupName(e.target.value)}
+                placeholder="e.g. Batch A - IT Companies"
+                style={{ width: "100%", marginBottom: 6, background: C.card, border: `1px solid ${C.border2}`, color: C.text, padding: "7px 10px", borderRadius: 6, fontSize: 12, boxSizing: "border-box" }} />
+              <div style={{ fontSize: 10, color: C.textDim, marginBottom: 4 }}>Is group ko schedule karte waqt yehi template variants use honge:</div>
+              <select value={newGroupIndustry} onChange={e => { setNewGroupIndustry(e.target.value); setNewGroupCategory("") }}
+                style={{ width: "100%", marginBottom: 6, background: C.card, border: `1px solid ${C.border2}`, color: C.text, padding: "6px 9px", borderRadius: 6, fontSize: 12, cursor: "pointer" }}>
+                <option value="">Industry — koi nahi (Compose se manually)</option>
+                {Object.keys(templateLibrary).map(ind => <option key={ind} value={ind}>{ind}</option>)}
+              </select>
+              {newGroupIndustry && (
+                <select value={newGroupCategory} onChange={e => setNewGroupCategory(e.target.value)}
+                  style={{ width: "100%", marginBottom: 8, background: C.card, border: `1px solid ${C.border2}`, color: C.text, padding: "6px 9px", borderRadius: 6, fontSize: 12, cursor: "pointer" }}>
+                  <option value="">Category chuno...</option>
+                  {Object.keys(templateLibrary[newGroupIndustry] || {}).map(cat => <option key={cat} value={cat}>{cat}</option>)}
+                </select>
+              )}
+              <button onClick={handleCreateGroup} disabled={creatingGroup} style={{
+                width: "100%", background: C.accent, border: "none", color: "#fff", padding: "7px 12px", borderRadius: 6,
+                cursor: creatingGroup ? "not-allowed" : "pointer", fontSize: 13, fontWeight: 700, opacity: creatingGroup ? 0.6 : 1,
+              }}>{creatingGroup ? <Spinner size={11} /> : "+ Create Group"}</button>
             </div>
 
             <div style={{ padding: 10 }}>
@@ -2129,6 +2184,30 @@ const healthColor = healthScore === null ? C.textMuted : healthScore >= 75 ? C.g
                   <h2 style={{ margin: 0, fontWeight: 700, fontSize: 18 }}>{groups.find(g => g.id === selectedGroupId)?.name}</h2>
                   <div style={{ fontSize: 12, color: C.textMuted }}>{recipients.filter(r => (r.groupIds || []).includes(selectedGroupId)).length} of {recipients.length} recipients in this group</div>
                 </div>
+                {(() => {
+                  const g = groups.find(gr => gr.id === selectedGroupId)
+                  if (!g) return null
+                  return (
+                    <div style={{ background: C.card, border: `1px solid ${C.border2}`, borderRadius: 8, padding: 12, marginBottom: 16, display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+                      <span style={{ fontSize: 11, color: C.textMuted, textTransform: "uppercase" }}>Template:</span>
+                      <select value={g.templateIndustry || ""} onChange={e => handleUpdateGroupTemplate(g.id, e.target.value, "")}
+                        style={{ background: C.surface, border: `1px solid ${C.border2}`, color: C.text, padding: "5px 8px", borderRadius: 6, fontSize: 12, cursor: "pointer" }}>
+                        <option value="">Koi nahi (Compose se manually)</option>
+                        {Object.keys(templateLibrary).map(ind => <option key={ind} value={ind}>{ind}</option>)}
+                      </select>
+                      {g.templateIndustry && (
+                        <select value={g.templateCategory || ""} onChange={e => handleUpdateGroupTemplate(g.id, g.templateIndustry, e.target.value)}
+                          style={{ background: C.surface, border: `1px solid ${C.border2}`, color: C.text, padding: "5px 8px", borderRadius: 6, fontSize: 12, cursor: "pointer" }}>
+                          <option value="">Category chuno...</option>
+                          {Object.keys(templateLibrary[g.templateIndustry] || {}).map(cat => <option key={cat} value={cat}>{cat}</option>)}
+                        </select>
+                      )}
+                      {g.templateIndustry && g.templateCategory && (
+                        <span style={{ fontSize: 11, color: C.accent, background: C.accentDim, padding: "3px 8px", borderRadius: 5 }}>✓ {g.templateIndustry} → {g.templateCategory}</span>
+                      )}
+                    </div>
+                  )
+                })()}
                 <div style={{ fontSize: 12, color: C.textMuted, marginBottom: 16 }}>
                   Checkbox se select karo ki kaun is group mein ho. Yeh Compose screen pe "Send to" mein select karke sirf inhi ko schedule kar sakte ho.
                 </div>
@@ -2294,47 +2373,63 @@ const healthColor = healthScore === null ? C.textMuted : healthScore >= 75 ? C.g
             )
           )}
 
-          {followUpSubView === "templates" && (
-            <div style={{ display: "grid", gridTemplateColumns: "220px 1fr", gap: 20 }}>
-              <div>
-                <div style={{ fontSize: 11, color: C.textMuted, textTransform: "uppercase", letterSpacing: 1, marginBottom: 10 }}>4 Variants (Day 1/3/5/7)</div>
-                <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                  {followUpTemplates.map((v, idx) => {
-                    const isFilled = v?.subject && v?.body
-                    const isEditing = ftEditingIdx === idx
-                    return (
-                      <button key={idx} onClick={() => ftOpenVariant(idx)} style={{
-                        padding: "10px 14px", borderRadius: 8, textAlign: "left", cursor: "pointer",
-                        border: `1px solid ${isEditing ? C.accent : C.border2}`,
-                        background: isEditing ? C.accentDim : C.card,
-                        color: isEditing ? C.accent : isFilled ? C.text : C.textDim, fontSize: 13, position: "relative",
-                      }}>
-                        Follow-up {idx + 1} (Day {[1, 3, 5, 7][idx]})
-                        {isFilled && <span style={{ position: "absolute", top: 8, right: 8, width: 6, height: 6, borderRadius: "50%", background: C.green }} />}
-                      </button>
-                    )
-                  })}
-                </div>
+        {followUpSubView === "templates" && (
+            <div>
+              <div style={{ display: "flex", gap: 6, marginBottom: 16 }}>
+                {FOLLOWUP_DAYS.map((day, dayIdx) => {
+                  const filledCount = followUpTemplates[dayIdx]?.filter(v => v?.subject && v?.body).length || 0
+                  return (
+                    <button key={dayIdx} onClick={() => { setFtSelectedDay(dayIdx); setFtEditingVariant(null) }} style={{
+                      padding: "8px 16px", borderRadius: 8, fontSize: 13, cursor: "pointer",
+                      border: `1px solid ${ftSelectedDay === dayIdx ? C.accent : C.border2}`,
+                      background: ftSelectedDay === dayIdx ? C.accentDim : C.card,
+                      color: ftSelectedDay === dayIdx ? C.accent : C.text, fontWeight: ftSelectedDay === dayIdx ? 700 : 400,
+                    }}>Day {day} <span style={{ fontSize: 10, color: filledCount === 4 ? C.green : C.textDim }}>({filledCount}/4)</span></button>
+                  )
+                })}
               </div>
-              <div>
-                {ftEditingIdx === null ? (
-                  <div style={{ color: C.textDim, fontSize: 13, textAlign: "center", padding: 60 }}>Koi variant select karo edit karne ke liye</div>
-                ) : (
-                  <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-                    <div>
-                      <div style={{ fontSize: 11, color: C.textMuted, marginBottom: 6, textTransform: "uppercase", letterSpacing: 1 }}>Subject — Variant {ftEditingIdx + 1}</div>
-                      <input value={ftSubject} onChange={e => setFtSubject(e.target.value)} placeholder="e.g. Following up on my last email"
-                        style={{ width: "100%", background: C.card, border: `1px solid ${C.border2}`, color: C.text, padding: "10px 14px", borderRadius: 8, fontSize: 14, fontWeight: 600, boxSizing: "border-box" }} />
-                    </div>
-                    <div>
-                      <div style={{ fontSize: 11, color: C.textMuted, marginBottom: 6, textTransform: "uppercase", letterSpacing: 1 }}>Body</div>
-                      <textarea value={ftBody} onChange={e => setFtBody(e.target.value)}
-                        placeholder={`Hi {{contact}},\n\nJust following up on my previous email...\n\nBest,\n{{sender_name}}`}
-                        style={{ width: "100%", minHeight: 260, background: C.card, border: `1px solid ${C.border2}`, color: C.text, padding: 14, borderRadius: 8, fontSize: 13, lineHeight: 1.7, resize: "vertical", boxSizing: "border-box", fontFamily: "monospace" }} />
-                    </div>
-                    <button onClick={ftSaveVariant} style={{ padding: "10px 24px", background: C.accent, border: "none", color: "#fff", borderRadius: 8, cursor: "pointer", fontWeight: 700, fontSize: 13, width: "fit-content" }}>✅ Save Variant {ftEditingIdx + 1}</button>
+
+              <div style={{ display: "grid", gridTemplateColumns: "220px 1fr", gap: 20 }}>
+                <div>
+                  <div style={{ fontSize: 11, color: C.textMuted, textTransform: "uppercase", letterSpacing: 1, marginBottom: 10 }}>4 Variants — Day {FOLLOWUP_DAYS[ftSelectedDay]}</div>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                    {(followUpTemplates[ftSelectedDay] || []).map((v, vIdx) => {
+                      const isFilled = v?.subject && v?.body
+                      const isEditing = ftEditingVariant === vIdx
+                      return (
+                        <button key={vIdx} onClick={() => ftOpenVariant(ftSelectedDay, vIdx)} style={{
+                          padding: "10px 14px", borderRadius: 8, textAlign: "left", cursor: "pointer",
+                          border: `1px solid ${isEditing ? C.accent : C.border2}`,
+                          background: isEditing ? C.accentDim : C.card,
+                          color: isEditing ? C.accent : isFilled ? C.text : C.textDim, fontSize: 13, position: "relative",
+                        }}>
+                          Variant {vIdx + 1}
+                          {isFilled && <span style={{ position: "absolute", top: 8, right: 8, width: 6, height: 6, borderRadius: "50%", background: C.green }} />}
+                        </button>
+                      )
+                    })}
                   </div>
-                )}
+                </div>
+                <div>
+                  {ftEditingVariant === null ? (
+                    <div style={{ color: C.textDim, fontSize: 13, textAlign: "center", padding: 60 }}>Koi variant select karo edit karne ke liye</div>
+                  ) : (
+                    <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+                      <div>
+                        <div style={{ fontSize: 11, color: C.textMuted, marginBottom: 6, textTransform: "uppercase", letterSpacing: 1 }}>Subject — Day {FOLLOWUP_DAYS[ftSelectedDay]}, Variant {ftEditingVariant + 1}</div>
+                        <input value={ftSubject} onChange={e => setFtSubject(e.target.value)} placeholder="e.g. Following up on my last email"
+                          style={{ width: "100%", background: C.card, border: `1px solid ${C.border2}`, color: C.text, padding: "10px 14px", borderRadius: 8, fontSize: 14, fontWeight: 600, boxSizing: "border-box" }} />
+                      </div>
+                      <div>
+                        <div style={{ fontSize: 11, color: C.textMuted, marginBottom: 6, textTransform: "uppercase", letterSpacing: 1 }}>Body</div>
+                        <textarea value={ftBody} onChange={e => setFtBody(e.target.value)}
+                          placeholder={`Hi {{contact}},\n\nJust following up on my previous email...\n\nBest,\n{{sender_name}}`}
+                          style={{ width: "100%", minHeight: 260, background: C.card, border: `1px solid ${C.border2}`, color: C.text, padding: 14, borderRadius: 8, fontSize: 13, lineHeight: 1.7, resize: "vertical", boxSizing: "border-box", fontFamily: "monospace" }} />
+                      </div>
+                      <button onClick={ftSaveVariant} style={{ padding: "10px 24px", background: C.accent, border: "none", color: "#fff", borderRadius: 8, cursor: "pointer", fontWeight: 700, fontSize: 13, width: "fit-content" }}>✅ Save</button>
+                    </div>
+                  )}
+                </div>
               </div>
             </div>
           )}
@@ -2406,8 +2501,24 @@ const healthColor = healthScore === null ? C.textMuted : healthScore >= 75 ? C.g
                             )
                           })()}
                           </div>
+                          
                         <div style={{ display: "flex", gap: 6, alignItems: "flex-start" }}>
                           <button onClick={() => openThread(batchId, email)} style={{ fontSize: 11, padding: "4px 10px", borderRadius: 5, border: `1px solid ${C.accent}44`, background: C.accentDim, color: C.accent, cursor: "pointer" }}>👁 View Thread</button>
+                        {(() => {
+                            const fuRow = followUps.find(f => f.initialBatchId === batchId && f.recipientEmail === email)
+                            if (!fuRow) return null
+                            const isActive = fuRow.status === "active"
+                            const isBusy = followUpActionId === fuRow.id
+                            const isHardStopped = ["stopped"].includes(fuRow.status) && ["spam", "bounced", "unsubscribed"].includes(fuRow.stoppedReason)
+                            return (
+                              <button onClick={() => handleTrackingFollowUpToggle(batchId, email)} disabled={isBusy || isHardStopped} style={{
+                                fontSize: 11, padding: "4px 10px", borderRadius: 5, cursor: (isBusy || isHardStopped) ? "not-allowed" : "pointer",
+                                border: `1px solid ${isActive ? C.yellow + "44" : C.green + "44"}`,
+                                background: isActive ? C.yellowDim : C.greenDim,
+                                color: isHardStopped ? C.textMuted : isActive ? C.yellow : C.green,
+                              }}>{isBusy ? "..." : isHardStopped ? `🚫 ${fuRow.stoppedReason}` : isActive ? "⏸ Pause Follow-up" : "▶ Resume Follow-up"}</button>
+                            )
+                          })()}
                           <div style={{ display: "flex", gap: 6, flexWrap: "wrap", justifyContent: "flex-end" }}>
                             {(() => {
                               const replyMatch = replies.find(r => r.batchId === batchId && r.email === email)
@@ -3413,18 +3524,23 @@ const healthColor = healthScore === null ? C.textMuted : healthScore >= 75 ? C.g
               <button onClick={() => setSendNowTarget(null)} disabled={!!sendingNowId} style={{ width: 32, height: 32, borderRadius: "50%", background: C.border2, border: "none", color: C.text, cursor: sendingNowId ? "not-allowed" : "pointer", fontSize: 16 }}>✕</button>
             </div>
             <div style={{ padding: 24, overflowY: "auto", display: "flex", flexDirection: "column", gap: 14 }}>
-              <div>
+          <div>
                 <div style={{ fontSize: 11, color: C.textMuted, marginBottom: 8, textTransform: "uppercase", letterSpacing: 1 }}>Ek variant se load karo (ya niche khud likho)</div>
-                <div style={{ display: "flex", gap: 6 }}>
-                  {followUpTemplates.map((v, idx) => (
-                    <button key={idx} onClick={() => { setSendNowVariantIdx(idx); setSendNowSubject(v?.subject || ""); setSendNowBody(v?.body || "") }} style={{
-                      padding: "6px 14px", borderRadius: 6, fontSize: 12, cursor: "pointer",
-                      border: `1px solid ${sendNowVariantIdx === idx ? C.accent : C.border2}`,
-                      background: sendNowVariantIdx === idx ? C.accentDim : "transparent",
-                      color: sendNowVariantIdx === idx ? C.accent : C.textMuted,
-                    }}>Variant {idx + 1}</button>
-                  ))}
-                </div>
+                <select value={sendNowVariantIdx} onChange={e => {
+                    const val = e.target.value
+                    setSendNowVariantIdx(val)
+                    if (val) {
+                      const [d, v] = val.split("-").map(Number)
+                      const t = followUpTemplates[d]?.[v]
+                      setSendNowSubject(t?.subject || ""); setSendNowBody(t?.body || "")
+                    }
+                  }}
+                  style={{ width: "100%", background: C.card, border: `1px solid ${C.border2}`, color: C.text, padding: "8px 10px", borderRadius: 6, fontSize: 12, cursor: "pointer" }}>
+                  <option value="">✏️ Khud likho (koi template nahi)</option>
+                  {FOLLOWUP_DAYS.map((day, dIdx) => (followUpTemplates[dIdx] || []).map((v, vIdx) => (
+                    (v?.subject && v?.body) && <option key={`${dIdx}-${vIdx}`} value={`${dIdx}-${vIdx}`}>Day {day} — Variant {vIdx + 1}</option>
+                  )))}
+                </select>
               </div>
               <div>
                 <div style={{ fontSize: 11, color: C.textMuted, marginBottom: 6, textTransform: "uppercase", letterSpacing: 1 }}>Subject</div>
