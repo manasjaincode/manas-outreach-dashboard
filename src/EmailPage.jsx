@@ -745,13 +745,13 @@ const ftOpenVariant = (dayIdx, vIdx) => {
     setFtBody(v?.body || "")
   }
 
-  const ftSaveVariant = async () => {
+ const ftSaveVariant = async () => {
     if (ftEditingVariant === null) return
-    if (!ftSubject.trim() || !ftBody.trim()) { showToast("Subject aur Body dono bharo — variant save nahi hua!", "error"); return }
+    if (!ftBody.trim()) { showToast("Body khali hai — variant save nahi hua!", "error"); return }
     const existing = followUpTemplates[ftSelectedDay][ftEditingVariant]
     try {
-      const { template } = await api.saveFollowUpTemplate({
-        id: existing?.id || undefined, dayIndex: ftSelectedDay, variantIdx: ftEditingVariant, subject: ftSubject, body: ftBody,
+   const { template } = await api.saveFollowUpTemplate({
+        id: existing?.id || undefined, dayIndex: ftSelectedDay, variantIdx: ftEditingVariant, subject: "", body: ftBody,
       })
       setFollowUpTemplates((prev) => {
         const copy = prev.map(day => [...day])
@@ -2411,20 +2411,18 @@ const healthColor = healthScore === null ? C.textMuted : healthScore >= 75 ? C.g
                   </div>
                 </div>
                 <div>
-                  {ftEditingVariant === null ? (
+             {ftEditingVariant === null ? (
                     <div style={{ color: C.textDim, fontSize: 13, textAlign: "center", padding: 60 }}>Koi variant select karo edit karne ke liye</div>
                   ) : (
                     <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-                      <div>
-                        <div style={{ fontSize: 11, color: C.textMuted, marginBottom: 6, textTransform: "uppercase", letterSpacing: 1 }}>Subject — Day {FOLLOWUP_DAYS[ftSelectedDay]}, Variant {ftEditingVariant + 1}</div>
-                        <input value={ftSubject} onChange={e => setFtSubject(e.target.value)} placeholder="e.g. Following up on my last email"
-                          style={{ width: "100%", background: C.card, border: `1px solid ${C.border2}`, color: C.text, padding: "10px 14px", borderRadius: 8, fontSize: 14, fontWeight: 600, boxSizing: "border-box" }} />
+                      <div style={{ fontSize: 11, color: C.textDim, background: C.card, border: `1px solid ${C.border2}`, borderRadius: 8, padding: "8px 12px" }}>
+                        ℹ️ Subject alag se nahi likhna — follow-up hamesha original mail ka "Re: [subject]" hoke usi thread mein jaata hai (Gmail ki tarah). Sirf Body likho.
                       </div>
                       <div>
-                        <div style={{ fontSize: 11, color: C.textMuted, marginBottom: 6, textTransform: "uppercase", letterSpacing: 1 }}>Body</div>
+                        <div style={{ fontSize: 11, color: C.textMuted, marginBottom: 6, textTransform: "uppercase", letterSpacing: 1 }}>Body — Day {FOLLOWUP_DAYS[ftSelectedDay]}, Variant {ftEditingVariant + 1}</div>
                         <textarea value={ftBody} onChange={e => setFtBody(e.target.value)}
                           placeholder={`Hi {{contact}},\n\nJust following up on my previous email...\n\nBest,\n{{sender_name}}`}
-                          style={{ width: "100%", minHeight: 260, background: C.card, border: `1px solid ${C.border2}`, color: C.text, padding: 14, borderRadius: 8, fontSize: 13, lineHeight: 1.7, resize: "vertical", boxSizing: "border-box", fontFamily: "monospace" }} />
+                          style={{ width: "100%", minHeight: 320, background: C.card, border: `1px solid ${C.border2}`, color: C.text, padding: 14, borderRadius: 8, fontSize: 13, lineHeight: 1.7, resize: "vertical", boxSizing: "border-box", fontFamily: "monospace" }} />
                       </div>
                       <button onClick={ftSaveVariant} style={{ padding: "10px 24px", background: C.accent, border: "none", color: "#fff", borderRadius: 8, cursor: "pointer", fontWeight: 700, fontSize: 13, width: "fit-content" }}>✅ Save</button>
                     </div>
