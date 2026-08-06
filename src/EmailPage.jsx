@@ -857,7 +857,7 @@ const openSendNowModal = (row) => {
 
   const confirmSendNow = async () => {
     if (!sendNowTarget) return
-    if (!sendNowSubject.trim() || !sendNowBody.trim()) { showToast("Subject aur Body bharo pehle!", "error"); return }
+if (!sendNowBody.trim()) { showToast("Body bharo pehle!", "error"); return }
     setSendingNowId(sendNowTarget.id)
     try {
       await api.sendFollowUpNow({ id: sendNowTarget.id, subject: sendNowSubject, body: sendNowBody })
@@ -2377,7 +2377,7 @@ const healthColor = healthScore === null ? C.textMuted : healthScore >= 75 ? C.g
             <div>
               <div style={{ display: "flex", gap: 6, marginBottom: 16 }}>
                 {FOLLOWUP_DAYS.map((day, dayIdx) => {
-                  const filledCount = followUpTemplates[dayIdx]?.filter(v => v?.subject && v?.body).length || 0
+const filledCount = followUpTemplates[dayIdx]?.filter(v => v?.body).length || 0
                   return (
                     <button key={dayIdx} onClick={() => { setFtSelectedDay(dayIdx); setFtEditingVariant(null) }} style={{
                       padding: "8px 16px", borderRadius: 8, fontSize: 13, cursor: "pointer",
@@ -3535,9 +3535,9 @@ const healthColor = healthScore === null ? C.textMuted : healthScore >= 75 ? C.g
                   }}
                   style={{ width: "100%", background: C.card, border: `1px solid ${C.border2}`, color: C.text, padding: "8px 10px", borderRadius: 6, fontSize: 12, cursor: "pointer" }}>
                   <option value="">✏️ Khud likho (koi template nahi)</option>
-                  {FOLLOWUP_DAYS.map((day, dIdx) => (followUpTemplates[dIdx] || []).map((v, vIdx) => (
-                    (v?.subject && v?.body) && <option key={`${dIdx}-${vIdx}`} value={`${dIdx}-${vIdx}`}>Day {day} — Variant {vIdx + 1}</option>
-                  )))}
+                 {FOLLOWUP_DAYS.map((day, dIdx) => (followUpTemplates[dIdx] || []).map((v, vIdx) => (
+  v?.body && <option key={`${dIdx}-${vIdx}`} value={`${dIdx}-${vIdx}`}>Day {day} — Variant {vIdx + 1}</option>
+)))}
                 </select>
               </div>
               <div>
