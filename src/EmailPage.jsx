@@ -702,6 +702,7 @@ const [sentLogFilter, setSentLogFilter] = useState("")
   const [sendingNowId, setSendingNowId] = useState(null)
   const [customDateDrafts, setCustomDateDrafts] = useState({})
 const [followUpSearchFilter, setFollowUpSearchFilter] = useState("")
+const [followUpActionId, setFollowUpActionId] = useState(null)
   const loadFollowUps = async () => {
     setLoadingFollowUps(true)
     try { const { followUps: rows } = await api.listFollowUps(); setFollowUps(rows) }
