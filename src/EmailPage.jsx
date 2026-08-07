@@ -2992,8 +2992,9 @@ const filledCount = followUpTemplates[dayIdx]?.filter(v => v?.body).length || 0
                     <div style={{ color: C.textMuted, fontSize: 11 }}>{log.email} · via {log.sender}</div>
                     {log.error && <div style={{ color: C.red, fontSize: 11 }}>{log.error}</div>}
                   </div>
-                  <div style={{ marginLeft: "auto", fontSize: 11, color: C.textMuted }}>{log.time}</div>
-                </div>
+<div style={{ marginLeft: "auto", fontSize: 11, color: C.textMuted, textAlign: "right" }}>
+  {log.time ? new Date(log.time).toLocaleString("en-IN", { timeZone: "Asia/Kolkata", weekday: "short", day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit", hour12: true }) : "—"}
+</div>                </div>
               ))}
             </div>
           )}
