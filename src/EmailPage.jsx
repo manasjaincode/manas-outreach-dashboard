@@ -745,9 +745,11 @@ const ftOpenVariant = (dayIdx, vIdx) => {
     setFtBody(v?.body || "")
   }
 
- const ftSaveVariant = async () => {
-    if (ftEditingVariant === null) return
+const [ftSaving, setFtSaving] = useState(false)
+  const ftSaveVariant = async () => {
+    if (ftEditingVariant === null || ftSaving) return
     if (!ftBody.trim()) { showToast("Body khali hai — variant save nahi hua!", "error"); return }
+    setFtSaving(true)
     const existing = followUpTemplates[ftSelectedDay][ftEditingVariant]
     try {
    const { template } = await api.saveFollowUpTemplate({
@@ -760,8 +762,8 @@ const ftOpenVariant = (dayIdx, vIdx) => {
       })
       showToast(`Day ${FOLLOWUP_DAYS[ftSelectedDay]} — Variant ${ftEditingVariant + 1} saved!`, "success")
     } catch (err) { showApiError(err) }
+    setFtSaving(false)
   }
-
   // Called from the post-send banner — pulls sender/time info from the
   // just-completed batch's SentLog rows and registers each recipient.
   const handleAddToFollowUp = async () => {
@@ -2431,8 +2433,10 @@ const filledCount = followUpTemplates[dayIdx]?.filter(v => v?.body).length || 0
                           placeholder={`Hi {{contact}},\n\nJust following up on my previous email...\n\nBest,\n{{sender_name}}`}
                           style={{ width: "100%", minHeight: 320, background: C.card, border: `1px solid ${C.border2}`, color: C.text, padding: 14, borderRadius: 8, fontSize: 13, lineHeight: 1.7, resize: "vertical", boxSizing: "border-box", fontFamily: "monospace" }} />
                       </div>
-                      <button onClick={ftSaveVariant} style={{ padding: "10px 24px", background: C.accent, border: "none", color: "#fff", borderRadius: 8, cursor: "pointer", fontWeight: 700, fontSize: 13, width: "fit-content" }}>✅ Save</button>
-                    </div>
+<button onClick={ftSaveVariant} disabled={ftSaving} style={{ padding: "10px 24px", background: ftSaving ? C.border2 : C.accent, border: "none", color: "#fff", borderRadius: 8, cursor: ftSaving ? "not-allowed" : "pointer", fontWeight: 700, fontSize: 13, width: "fit-content", opacity: ftSaving ? 0.6 : 1, display: "inline-flex", alignItems: "center", gap: 8 }}>
+  {ftSaving && <Spinner size={13} />}
+  {ftSaving ? "Saving..." : "✅ Save"}
+</button>                    </div>
                   )}
                 </div>
               </div>
