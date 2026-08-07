@@ -686,7 +686,8 @@ const [sentLog, setSentLog] = useState([])
     setLoadingSentLog(false)
   }
   useEffect(() => { loadSentLog() }, [])
-
+  const [trackingSearchFilter, setTrackingSearchFilter] = useState("")
+const [sentLogFilter, setSentLogFilter] = useState("")
   // ── Follow-ups ──
   const [followUps, setFollowUps] = useState([])
   const [loadingFollowUps, setLoadingFollowUps] = useState(false)
@@ -700,8 +701,7 @@ const [sentLog, setSentLog] = useState([])
   const [sendNowBody, setSendNowBody] = useState("")
   const [sendingNowId, setSendingNowId] = useState(null)
   const [customDateDrafts, setCustomDateDrafts] = useState({})
-  const [followUpActionId, setFollowUpActionId] = useState(null) // any row currently mid-action (toggle/delete/schedule)
-
+const [followUpSearchFilter, setFollowUpSearchFilter] = useState("")
   const loadFollowUps = async () => {
     setLoadingFollowUps(true)
     try { const { followUps: rows } = await api.listFollowUps(); setFollowUps(rows) }
@@ -1386,7 +1386,7 @@ const healthColor = healthScore === null ? C.textMuted : healthScore >= 75 ? C.g
 
   const riskCounts = perRecipientBreakdown.reduce((acc, r) => { acc[r.riskLevel] = (acc[r.riskLevel] || 0) + 1; return acc }, {})
 
-  const senderStats = senders.map(sdr => {
+const senderStats = senders.map(sdr => {
     const theirSends = sentLog.filter(log => log.sender === sdr.email && log.status === "sent")
     const batchKeys = [...new Set(theirSends.map(log => `${log.email}__${log.batchId}`))]
     let delivered = 0, opened = 0, clicked = 0, bounced = 0, spam = 0, unsub = 0
@@ -2331,14 +2331,17 @@ const healthColor = healthScore === null ? C.textMuted : healthScore >= 75 ? C.g
             <button onClick={loadFollowUps} disabled={loadingFollowUps} style={{ marginLeft: "auto", padding: "8px 16px", borderRadius: 7, border: `1px solid ${C.border2}`, background: C.card, color: C.text, cursor: "pointer", fontSize: 12 }}>{loadingFollowUps ? "..." : "🔄 Refresh"}</button>
           </div>
 
-          {followUpSubView === "tracking" && (
-          followUps.length === 0 ? (
+         {followUpSubView === "tracking" && (
+            <>
+              <input placeholder="Search by name, email, company..." value={followUpSearchFilter} onChange={e => setFollowUpSearchFilter(e.target.value)}
+                style={{ width: "100%", background: C.card, border: `1px solid ${C.border2}`, color: C.text, padding: "8px 12px", borderRadius: 6, fontSize: 12, boxSizing: "border-box", marginBottom: 16 }} />
+          {followUps.length === 0 ? (
   loadingFollowUps ? <PageLoader label="Loading follow-ups..." /> : (
     <div style={{ color: C.textMuted, textAlign: "center", padding: 60 }}>Koi follow-up track nahi ho rahi abhi. Ek batch bhejo, phir 'Add to Follow-up' dabao.</div>
   )
 ) : (
               <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-                {followUps.map((row) => {
+                {followUps.filter(row => !followUpSearchFilter || (row.recipientEmail + (row.recipientName||"") + (row.company||"")).toLowerCase().includes(followUpSearchFilter.toLowerCase())).map((row) => {
                   const statusColor = row.status === "active" ? C.green : row.status === "stopped" ? C.yellow : row.status === "paused" ? C.textMuted : row.status === "completed" ? C.accent : C.red
                   const busy = followUpActionId === row.id
                   return (
@@ -2377,12 +2380,13 @@ const healthColor = healthScore === null ? C.textMuted : healthScore >= 75 ? C.g
                       </div>
                     </div>
                   )
-             })}
+         })}
               </div>
-            )
+            )}
+            </>
           )}
 
-        {followUpSubView === "templates" && (
+          {followUpSubView === "templates" && (
             <div>
               <div style={{ display: "flex", gap: 6, marginBottom: 16 }}>
                 {FOLLOWUP_DAYS.map((day, dayIdx) => {
@@ -2447,7 +2451,10 @@ const filledCount = followUpTemplates[dayIdx]?.filter(v => v?.body).length || 0
 
       {/* ── PER-EMAIL TRACKING ── */}
       {activeView === "tracking" && (
+        
         <div style={{ padding: 24 }}>
+          <input placeholder="Search by email..." value={trackingSearchFilter} onChange={e => setTrackingSearchFilter(e.target.value)}
+  style={{ width: "100%", background: C.card, border: `1px solid ${C.border2}`, color: C.text, padding: "8px 12px", borderRadius: 6, fontSize: 12, boxSizing: "border-box", marginBottom: 16 }} />
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
             <h2 style={{ margin: 0, fontWeight: 700, fontSize: 20 }}>Per-Email Tracking</h2>
             <div style={{ display: "flex", gap: 8 }}>
@@ -2472,6 +2479,7 @@ const filledCount = followUpTemplates[dayIdx]?.filter(v => v?.body).length || 0
             <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
               {Object.values(eventsByEmailBatch)
                 .filter(({ events: evs }) => trackingFilter === "all" || evs.some(e => e.event === trackingFilter))
+               .filter(({ email }) => !trackingSearchFilter || email.toLowerCase().includes(trackingSearchFilter.toLowerCase()))
                 .sort((a, b) => new Date(b.events[0]?.date) - new Date(a.events[0]?.date))
                 .map(({ email, batchId, events: evs }) => {
                   const opens = evs.filter(e => e.event === "opened")
@@ -2970,6 +2978,8 @@ const filledCount = followUpTemplates[dayIdx]?.filter(v => v?.body).length || 0
         <div style={{ padding: 24 }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
             <h2 style={{ margin: 0, fontWeight: 700, fontSize: 20 }}>Sent Log</h2>
+           <input placeholder="Search by email, sender, subject..." value={sentLogFilter} onChange={e => setSentLogFilter(e.target.value)}
+  style={{ width: "100%", background: C.card, border: `1px solid ${C.border2}`, color: C.text, padding: "8px 12px", borderRadius: 6, fontSize: 12, boxSizing: "border-box", marginBottom: 16 }} />
             <button onClick={loadSentLog} disabled={loadingSentLog} style={{ padding: "8px 16px", borderRadius: 7, border: `1px solid ${C.border2}`, background: C.card, color: C.text, cursor: "pointer", fontSize: 12 }}>
               {loadingSentLog ? "..." : "🔄 Refresh"}
             </button>
@@ -2980,18 +2990,24 @@ const filledCount = followUpTemplates[dayIdx]?.filter(v => v?.body).length || 0
             )
           ) : (
             <div style={{ background: C.card, border: `1px solid ${C.border2}`, borderRadius: 10, overflow: "hidden" }}>
-              {sentLog.map((log, i) => (
-                <div key={log.id || i} style={{ padding: "12px 20px", borderBottom: `1px solid ${C.border}`, display: "flex", gap: 12, alignItems: "center" }}>
+{sentLog.filter(log => !sentLogFilter || (log.email + (log.company||"") + (log.sender||"") + (log.subject||"")).toLowerCase().includes(sentLogFilter.toLowerCase())).map((log, i) => (                <div key={log.id || i} style={{ padding: "12px 20px", borderBottom: `1px solid ${C.border}`, display: "flex", gap: 12, alignItems: "center" }}>
                   <div style={{
   fontSize: 11, padding: "3px 8px", borderRadius: 5, fontWeight: 700,
   background: log.status === "error" ? C.redDim : log.status === "cancelled" ? C.border2 : C.greenDim,
   color: log.status === "error" ? C.red : log.status === "cancelled" ? C.textMuted : C.green,
 }}>{log.status === "error" ? "✗ FAILED" : log.status === "scheduled" ? "🕓 SCHEDULED" : log.status === "cancelled" ? "🚫 CANCELLED" : "✓ SENT"}</div>
-                  <div>
-                    <div style={{ fontWeight: 600, fontSize: 13 }}>{log.company || log.email}</div>
-                    <div style={{ color: C.textMuted, fontSize: 11 }}>{log.email} · via {log.sender}</div>
-                    {log.error && <div style={{ color: C.red, fontSize: 11 }}>{log.error}</div>}
-                  </div>
+                 <div>
+  <div style={{ fontWeight: 600, fontSize: 13, display: "flex", alignItems: "center", gap: 6 }}>
+    {log.company || log.email}
+    {String(log.variantUsed || "").toLowerCase().includes("followup") && (
+      <span style={{ fontSize: 10, padding: "2px 7px", borderRadius: 4, background: C.accentDim, color: C.accent, fontWeight: 700 }}>
+        🔁 Follow-up {String(log.variantUsed).replace(/\D/g, "")}
+      </span>
+    )}
+  </div>
+  <div style={{ color: C.textMuted, fontSize: 11 }}>{log.email} · via {log.sender}</div>
+  {log.error && <div style={{ color: C.red, fontSize: 11 }}>{log.error}</div>}
+</div>
 <div style={{ marginLeft: "auto", fontSize: 11, color: C.textMuted, textAlign: "right" }}>
   {log.time ? new Date(log.time).toLocaleString("en-IN", { timeZone: "Asia/Kolkata", weekday: "short", day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit", hour12: true }) : "—"}
 </div>                </div>
