@@ -1591,7 +1591,6 @@ const senderStats = senders.map(sdr => {
           { id: "analytics", label: "📊 Analytics" },
           { id: "senders", label: `📮 Senders (${senders.length}/${allSenders.length})` },
           { id: "sent", label: `📤 Sent Log (${sentLog.length})` },
-          { id: "groups", label: `🗂 Groups (${groups.length})` },
           { id: "personalized", label: `🎯 Personalized (${pmBatches.length})` },
         ].map(tab => (
           <button key={tab.id} onClick={() => setActiveView(tab.id)} style={{

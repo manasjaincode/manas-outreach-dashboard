@@ -233,13 +233,16 @@ export const analyzeInboxScore = (subject, body) => call("analyzeInboxScore", { 
 // or (for admins):
 //   { scope: "admin", global: {...same shape...}, perMember: [{ username, name, ...same shape }] }
 export const getAnalytics = () => call("getAnalytics")
-// ---- Personalized Mails ----
-export const listPersonalizedMails = () => callBackend("listPersonalizedMails");
-export const savePersonalizedMail = (mail) => callBackend("savePersonalizedMail", mail);
-export const deletePersonalizedMail = (id) => callBackend("deletePersonalizedMail", { id });
-export const assignMailToBatch = (id, batchId) => callBackend("assignMailToBatch", { id, batchId });
-export const bulkImportPersonalizedMails = (rows) => callBackend("bulkImportPersonalizedMails", { rows });
-export const listPersonalizedBatches = () => callBackend("listPersonalizedBatches");
-export const createPersonalizedBatch = (name) => callBackend("createPersonalizedBatch", { name });
-export const deletePersonalizedBatch = (id) => callBackend("deletePersonalizedBatch", { id });
-export const sendPersonalizedBatch = (payload) => callBackend("sendPersonalizedBatch", payload);
+// ============================================================
+// PERSONALIZED MAILS
+// ============================================================
+
+export const listPersonalizedMails = () => call("listPersonalizedMails")
+export const savePersonalizedMail = (mail) => call("savePersonalizedMail", mail)
+export const deletePersonalizedMail = (id) => call("deletePersonalizedMail", { id })
+export const assignMailToBatch = (id, batchId) => call("assignMailToBatch", { id, batchId })
+export const bulkImportPersonalizedMails = (rows) => call("bulkImportPersonalizedMails", { rows })
+export const listPersonalizedBatches = () => call("listPersonalizedBatches")
+export const createPersonalizedBatch = (name) => call("createPersonalizedBatch", { name })
+export const deletePersonalizedBatch = (id) => call("deletePersonalizedBatch", { id })
+export const sendPersonalizedBatch = (payload) => call("sendPersonalizedBatch", payload)
