@@ -161,11 +161,14 @@ export const deleteRecipient = (id) => callBackend("deleteRecipient", { id });
 export const deleteRecipientsBatch = (ids) => callBackend("deleteRecipientsBatch", { ids });
 // ---- Recipient Groups ----
 export const listGroups = () => callBackend("listGroups");
-export const createGroup = (name) => callBackend("createGroup", { name });
+export const createGroup = (name, templateIndustry, templateCategory) =>
+  callBackend("createGroup", { name, templateIndustry, templateCategory });
 export const renameGroup = (id, name) => callBackend("renameGroup", { id, name });
 export const deleteGroup = (id) => callBackend("deleteGroup", { id });
 export const addRecipientsToGroup = (groupId, recipientIds) => callBackend("addRecipientsToGroup", { groupId, recipientIds });
 export const removeRecipientsFromGroup = (groupId, recipientIds) => callBackend("removeRecipientsFromGroup", { groupId, recipientIds });
+export const updateGroupTemplate = (id, templateIndustry, templateCategory) =>
+  callBackend("updateGroupTemplate", { id, templateIndustry, templateCategory });
 // ---- Email ----
 export const getSenders = () => callBackend("getSenders");
 export const startEmailSend = (payload) => callBackend("startEmailSend", payload);
@@ -229,3 +232,13 @@ export const listEmailJobs = () => callBackend("listEmailJobs");
 export const cancelEmailJob = (jobId) => callBackend("cancelEmailJob", { jobId });
 export const getEmailLogDetails = (messageId) => callBackend("getEmailLogDetails", { messageId });
 export const deleteEmailLog = (messageId) => callBackend("deleteEmailLog", { messageId });
+// ---- Personalized Mails ----
+export const listPersonalizedMails = () => callBackend("listPersonalizedMails");
+export const savePersonalizedMail = (mail) => callBackend("savePersonalizedMail", mail);
+export const deletePersonalizedMail = (id) => callBackend("deletePersonalizedMail", { id });
+export const assignMailToBatch = (id, batchId) => callBackend("assignMailToBatch", { id, batchId });
+export const bulkImportPersonalizedMails = (rows) => callBackend("bulkImportPersonalizedMails", { rows });
+export const listPersonalizedBatches = () => callBackend("listPersonalizedBatches");
+export const createPersonalizedBatch = (name) => callBackend("createPersonalizedBatch", { name });
+export const deletePersonalizedBatch = (id) => callBackend("deletePersonalizedBatch", { id });
+export const sendPersonalizedBatch = (payload) => callBackend("sendPersonalizedBatch", payload);
