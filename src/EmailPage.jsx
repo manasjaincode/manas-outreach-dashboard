@@ -112,7 +112,30 @@ const mapCsvToRecipients = (rows) => {
     }
   }).filter(r => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(r.email))
 }
+const mapCsvToPersonalizedMails = (rows) => {
+  if (rows.length < 2) return []
+  const headers = rows[0]
+  const emailIdx = guessColumnIndex(headers, ["best email", "email address", "email"])
+  const allEmailsIdx = guessColumnIndex(headers, ["all emails"])
+  const companyIdx = guessColumnIndex(headers, ["business name", "company name", "company"])
+  const nameIdx = guessColumnIndex(headers, ["person 1 name", "contact name", "full name", "name"])
+  const cityIdx = guessColumnIndex(headers, ["city"])
+  const subjectIdx = guessColumnIndex(headers, ["subject"])
+  const bodyIdx = guessColumnIndex(headers, ["body"])
 
+  return rows.slice(1).map(r => {
+    let email = emailIdx !== -1 ? (r[emailIdx] || "").trim() : ""
+    if (!email && allEmailsIdx !== -1) email = (r[allEmailsIdx] || "").split(";")[0].trim()
+    return {
+      email,
+      name: nameIdx !== -1 ? (r[nameIdx] || "").trim() : "",
+      company: companyIdx !== -1 ? (r[companyIdx] || "").trim() : "",
+      city: cityIdx !== -1 ? (r[cityIdx] || "").trim() : "",
+      subject: subjectIdx !== -1 ? (r[subjectIdx] || "").trim() : "",
+      body: bodyIdx !== -1 ? (r[bodyIdx] || "").trim() : "",
+    }
+  }).filter(r => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(r.email))
+}
 // ============================================================
 // COLORS
 // ============================================================
@@ -583,6 +606,7 @@ const handleCreateGroup = async () => {
   const [pmScheduledDateTime, setPmScheduledDateTime] = useState("")
   const [pmSubmittingSchedule, setPmSubmittingSchedule] = useState(false)
   const [pmBatchActionId, setPmBatchActionId] = useState(null)
+  const [pmDeletingAll, setPmDeletingAll] = useState(false)
 
   const loadPmData = async () => {
     setLoadingPm(true)
@@ -653,7 +677,17 @@ const handleCreateGroup = async () => {
     catch (err) { showApiError(err) }
     setPmBatchActionId(null)
   }
-
+const pmDeleteAllMails = async () => {
+    const ok = await showConfirm(`Saari ${pmMails.length} personalized mails delete kar dein? (Batches khaali reh jayenge, delete nahi honge)`)
+    if (!ok) return
+    setPmDeletingAll(true)
+    try {
+      await api.deleteAllPersonalizedMails()
+      await loadPmData()
+      showToast("Saari mails delete ho gayi!", "success")
+    } catch (err) { showApiError(err) }
+    setPmDeletingAll(false)
+  }
   const pmAssignToBatch = async (mailId, batchId) => {
     setPmMails(prev => prev.map(m => m.id === mailId ? { ...m, batchId: batchId || "" } : m))
     try { await api.assignMailToBatch(mailId, batchId || "") }
@@ -666,14 +700,14 @@ const handleCreateGroup = async () => {
     setPmDraggingId(null)
   }
 
-  const pmHandleCsvFile = (e) => {
+const pmHandleCsvFile = (e) => {
     const file = e.target.files?.[0]
     if (!file) return
     setPmCsvFileName(file.name)
     const reader = new FileReader()
     reader.onload = (ev) => {
       const rows = parseCSV(String(ev.target.result || ""))
-      const mapped = mapCsvToRecipients(rows).map(r => ({ ...r, subject: "", body: "", _selected: true }))
+      const mapped = mapCsvToPersonalizedMails(rows).map(r => ({ ...r, _selected: true }))
       setPmCsvParsedRows(mapped); setPmShowCsvModal(true)
     }
     reader.readAsText(file); e.target.value = ""
@@ -2492,6 +2526,14 @@ const senderStats = senders.map(sdr => {
                 <button onClick={() => pmCsvFileInputRef.current?.click()} style={{ flex: 1, padding: "8px", borderRadius: 7, border: `1px solid ${C.border2}`, background: C.card, color: C.text, fontSize: 12, cursor: "pointer" }}>📁 Import CSV</button>
                 <input ref={pmCsvFileInputRef} type="file" accept=".csv" onChange={pmHandleCsvFile} style={{ display: "none" }} />
               </div>
+              {pmMails.length > 0 && (
+                <button onClick={pmDeleteAllMails} disabled={pmDeletingAll} style={{
+                  width: "100%", marginBottom: 8, padding: "6px", borderRadius: 7,
+                  border: `1px solid ${C.redDim}`, background: "transparent", color: C.red,
+                  fontSize: 11, cursor: pmDeletingAll ? "not-allowed" : "pointer",
+                  opacity: pmDeletingAll ? 0.6 : 1, display: "flex", alignItems: "center", justifyContent: "center", gap: 6,
+                }}>{pmDeletingAll ? <><Spinner size={10} color={C.red} /> Deleting...</> : `🗑 Delete All (${pmMails.length})`}</button>
+              )}
               <input placeholder="Search pool..." value={pmSearchFilter} onChange={e => setPmSearchFilter(e.target.value)}
                 style={{ width: "100%", background: C.card, border: `1px solid ${C.border2}`, color: C.text, padding: "7px 10px", borderRadius: 6, fontSize: 12, boxSizing: "border-box" }} />
               <div style={{ fontSize: 10, color: C.textDim, marginTop: 6 }}>💡 Bubble ko kisi batch pe drag karke drop karo assign karne ke liye</div>
