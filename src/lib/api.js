@@ -242,3 +242,4 @@ export const listPersonalizedBatches = () => callBackend("listPersonalizedBatche
 export const createPersonalizedBatch = (name) => callBackend("createPersonalizedBatch", { name });
 export const deletePersonalizedBatch = (id) => callBackend("deletePersonalizedBatch", { id });
 export const sendPersonalizedBatch = (payload) => callBackend("sendPersonalizedBatch", payload);
+export const deleteAllPersonalizedMails = () => callBackend("deleteAllPersonalizedMails");
