@@ -560,7 +560,160 @@ const handleCreateGroup = async () => {
     setGroupShowCsvModal(false); setGroupCsvParsedRows([]); setGroupCsvModalFilter("")
     if (count) showToast(`${count} recipient${count !== 1 ? "s" : ""} group mein import ho gaye!`, "success")
   }
+// ── Personalized Mails ──
+  const [pmMails, setPmMails] = useState([])
+  const [pmBatches, setPmBatches] = useState([])
+  const [loadingPm, setLoadingPm] = useState(false)
+  const [pmSearchFilter, setPmSearchFilter] = useState("")
+  const [pmEditorMail, setPmEditorMail] = useState(null)
+  const [pmEditorDraft, setPmEditorDraft] = useState({ email: "", name: "", company: "", city: "", subject: "", body: "" })
+  const [pmEditorSaving, setPmEditorSaving] = useState(false)
+  const [pmEditorDirty, setPmEditorDirty] = useState(false)
+  const [pmNewBatchName, setPmNewBatchName] = useState("")
+  const [pmCreatingBatch, setPmCreatingBatch] = useState(false)
+  const [pmDraggingId, setPmDraggingId] = useState(null)
+  const [pmDragOverBatch, setPmDragOverBatch] = useState(null)
+  const [pmCsvFileName, setPmCsvFileName] = useState("")
+  const [pmCsvParsedRows, setPmCsvParsedRows] = useState([])
+  const [pmShowCsvModal, setPmShowCsvModal] = useState(false)
+  const [pmImportingCsv, setPmImportingCsv] = useState(false)
+  const pmCsvFileInputRef = useRef(null)
+  const [pmScheduleBatchId, setPmScheduleBatchId] = useState(null)
+  const [pmScheduleMode, setPmScheduleMode] = useState("now")
+  const [pmScheduledDateTime, setPmScheduledDateTime] = useState("")
+  const [pmSubmittingSchedule, setPmSubmittingSchedule] = useState(false)
+  const [pmBatchActionId, setPmBatchActionId] = useState(null)
 
+  const loadPmData = async () => {
+    setLoadingPm(true)
+    try {
+      const [mRes, bRes] = await Promise.all([api.listPersonalizedMails(), api.listPersonalizedBatches()])
+      setPmMails(mRes.mails); setPmBatches(bRes.batches)
+    } catch (err) { showApiError(err) }
+    setLoadingPm(false)
+  }
+  useEffect(() => { if (activeView === "personalized") loadPmData() }, [activeView])
+
+  const pmUnassigned = pmMails.filter(m => !m.batchId)
+  const pmFilteredUnassigned = pmUnassigned.filter(m => !pmSearchFilter || (m.email + (m.name || "") + (m.company || "")).toLowerCase().includes(pmSearchFilter.toLowerCase()))
+  const pmMailsForBatch = (batchId) => pmMails.filter(m => m.batchId === batchId)
+  const pmIsFilled = (m) => !!(m.subject && m.body)
+
+  const pmOpenNewMail = () => {
+    setPmEditorMail({}); setPmEditorDraft({ email: "", name: "", company: "", city: "", subject: "", body: "" }); setPmEditorDirty(false)
+  }
+  const pmOpenEditMail = (m) => {
+    setPmEditorMail(m)
+    setPmEditorDraft({ email: m.email, name: m.name || "", company: m.company || "", city: m.city || "", subject: m.subject || "", body: m.body || "" })
+    setPmEditorDirty(false)
+  }
+  const pmUpdateDraft = (patch) => { setPmEditorDraft(prev => ({ ...prev, ...patch })); setPmEditorDirty(true) }
+
+  const pmSaveMail = async () => {
+    if (!pmEditorDraft.email.trim()) { showToast("Email khali hai — bharo pehle!", "error"); return false }
+    setPmEditorSaving(true)
+    try {
+      const { mail } = await api.savePersonalizedMail({ id: pmEditorMail?.id, ...pmEditorDraft })
+      await loadPmData(); setPmEditorDirty(false); setPmEditorMail(mail)
+      showToast("Mail saved!", "success")
+      return true
+    } catch (err) { showApiError(err); return false }
+    finally { setPmEditorSaving(false) }
+  }
+
+  const pmCloseEditor = async () => {
+    if (pmEditorDirty) {
+      const ok = await showConfirm("Changes save nahi hue hain — bina save kiye band karein?")
+      if (!ok) return
+      showToast("Save nahi hua — changes discard ho gaye", "error")
+    }
+    setPmEditorMail(null)
+  }
+
+  const pmDeleteMail = async (id) => {
+    const ok = await showConfirm("Yeh mail delete kar dein?")
+    if (!ok) return
+    try { await api.deletePersonalizedMail(id); await loadPmData(); showToast("Mail deleted", "success"); if (pmEditorMail?.id === id) setPmEditorMail(null) }
+    catch (err) { showApiError(err) }
+  }
+
+  const pmCreateBatch = async () => {
+    if (!pmNewBatchName.trim()) { showToast("Batch ka naam likho!", "error"); return }
+    setPmCreatingBatch(true)
+    try { await api.createPersonalizedBatch(pmNewBatchName.trim()); setPmNewBatchName(""); await loadPmData(); showToast("Batch ban gaya!", "success") }
+    catch (err) { showApiError(err) }
+    setPmCreatingBatch(false)
+  }
+
+  const pmDeleteBatch = async (id, name) => {
+    const ok = await showConfirm(`"${name}" batch delete kar dein? Mails pool mein wapas chali jayengi.`)
+    if (!ok) return
+    setPmBatchActionId(id)
+    try { await api.deletePersonalizedBatch(id); await loadPmData(); showToast("Batch delete ho gaya", "success") }
+    catch (err) { showApiError(err) }
+    setPmBatchActionId(null)
+  }
+
+  const pmAssignToBatch = async (mailId, batchId) => {
+    setPmMails(prev => prev.map(m => m.id === mailId ? { ...m, batchId: batchId || "" } : m))
+    try { await api.assignMailToBatch(mailId, batchId || "") }
+    catch (err) { showApiError(err); await loadPmData() }
+  }
+
+  const pmHandleDrop = (batchId) => (e) => {
+    e.preventDefault(); setPmDragOverBatch(null)
+    if (pmDraggingId) pmAssignToBatch(pmDraggingId, batchId)
+    setPmDraggingId(null)
+  }
+
+  const pmHandleCsvFile = (e) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    setPmCsvFileName(file.name)
+    const reader = new FileReader()
+    reader.onload = (ev) => {
+      const rows = parseCSV(String(ev.target.result || ""))
+      const mapped = mapCsvToRecipients(rows).map(r => ({ ...r, subject: "", body: "", _selected: true }))
+      setPmCsvParsedRows(mapped); setPmShowCsvModal(true)
+    }
+    reader.readAsText(file); e.target.value = ""
+  }
+  const pmToggleCsvRow = (idx) => setPmCsvParsedRows(prev => prev.map((r, i) => i === idx ? { ...r, _selected: !r._selected } : r))
+  const pmToggleCsvAll = (val) => setPmCsvParsedRows(prev => prev.map(r => ({ ...r, _selected: val })))
+  const pmCsvSelectedCount = pmCsvParsedRows.filter(r => r._selected).length
+
+  const pmConfirmCsvImport = async () => {
+    const selected = pmCsvParsedRows.filter(r => r._selected).map(({ _selected, ...rest }) => rest)
+    setPmImportingCsv(true)
+    try {
+      await api.bulkImportPersonalizedMails(selected)
+      await loadPmData()
+      setPmShowCsvModal(false); setPmCsvParsedRows([])
+      showToast(`${selected.length} mails import ho gaye — ab har ek ko open karke subject/body bharo`, "success")
+    } catch (err) { showApiError(err) }
+    setPmImportingCsv(false)
+  }
+
+  const pmOpenSchedule = (batchId) => { setPmScheduleBatchId(batchId); setPmScheduleMode("now"); setPmScheduledDateTime("") }
+
+  const pmSubmitSchedule = async () => {
+    const batch = pmBatches.find(b => b.id === pmScheduleBatchId)
+    if (!batch) return
+    if (senders.length === 0) { showToast("Kam se kam ek sender select karo (Compose tab se)", "error"); return }
+    if (pmScheduleMode === "later" && !pmScheduledDateTime) { showToast("Date/time select karo", "error"); return }
+    setPmSubmittingSchedule(true)
+    try {
+      await api.sendPersonalizedBatch({
+        batchId: batch.id, senders, ccEmail: ccEmail.trim(), attachments,
+        gapMode, manualGapSec, autoMinSec, autoMaxSec,
+        baseTimeIso: pmScheduleMode === "later" ? new Date(pmScheduledDateTime).toISOString() : undefined,
+      })
+      showToast(`"${batch.name}" schedule ho gaya!`, "success")
+      setPmScheduleBatchId(null)
+      await loadEmailJobs()
+    } catch (err) { showApiError(err) }
+    setPmSubmittingSchedule(false)
+  }
   // ── Bulk Schedule — multiple groups, each at its own time, in one go ──
   const [bulkRows, setBulkRows] = useState([]) // [{ id, groupId, dateTime }]
   const [bulkSubmitting, setBulkSubmitting] = useState(false)
@@ -1438,6 +1591,8 @@ const senderStats = senders.map(sdr => {
           { id: "analytics", label: "📊 Analytics" },
           { id: "senders", label: `📮 Senders (${senders.length}/${allSenders.length})` },
           { id: "sent", label: `📤 Sent Log (${sentLog.length})` },
+          { id: "groups", label: `🗂 Groups (${groups.length})` },
+          { id: "personalized", label: `🎯 Personalized (${pmBatches.length})` },
         ].map(tab => (
           <button key={tab.id} onClick={() => setActiveView(tab.id)} style={{
             padding: "14px 16px", background: "none", border: "none", cursor: "pointer",
@@ -2322,7 +2477,148 @@ const senderStats = senders.map(sdr => {
           </div>
         </div>
       )}
-      
+      {/* ── PERSONALIZED MAILS ── */}
+      {activeView === "personalized" && (
+        <div style={{ display: "grid", gridTemplateColumns: "340px 1fr", height: "calc(100vh - 49px)" }}>
+          {/* Left — pool of unassigned mails */}
+          <div
+            style={{ borderRight: `1px solid ${C.border}`, overflowY: "auto", background: C.surface }}
+            onDragOver={e => { e.preventDefault(); setPmDragOverBatch("__pool__") }}
+            onDragLeave={() => setPmDragOverBatch(null)}
+            onDrop={pmHandleDrop(null)}
+          >
+            <div style={{ padding: 16, borderBottom: `1px solid ${C.border}` }}>
+              <div style={{ display: "flex", gap: 6, marginBottom: 8 }}>
+                <button onClick={pmOpenNewMail} style={{ flex: 1, padding: "8px", borderRadius: 7, border: "none", background: C.accent, color: "#fff", fontWeight: 700, fontSize: 12, cursor: "pointer" }}>➕ New Mail</button>
+                <button onClick={() => pmCsvFileInputRef.current?.click()} style={{ flex: 1, padding: "8px", borderRadius: 7, border: `1px solid ${C.border2}`, background: C.card, color: C.text, fontSize: 12, cursor: "pointer" }}>📁 Import CSV</button>
+                <input ref={pmCsvFileInputRef} type="file" accept=".csv" onChange={pmHandleCsvFile} style={{ display: "none" }} />
+              </div>
+              <input placeholder="Search pool..." value={pmSearchFilter} onChange={e => setPmSearchFilter(e.target.value)}
+                style={{ width: "100%", background: C.card, border: `1px solid ${C.border2}`, color: C.text, padding: "7px 10px", borderRadius: 6, fontSize: 12, boxSizing: "border-box" }} />
+              <div style={{ fontSize: 10, color: C.textDim, marginTop: 6 }}>💡 Bubble ko kisi batch pe drag karke drop karo assign karne ke liye</div>
+            </div>
+
+            <div style={{
+              padding: 10, minHeight: 120,
+              background: pmDragOverBatch === "__pool__" ? C.accentDim : "transparent",
+              border: pmDragOverBatch === "__pool__" ? `2px dashed ${C.accent}` : "2px dashed transparent",
+              borderRadius: 8, margin: 8, transition: "all .15s",
+            }}>
+              {loadingPm ? (
+                <div style={{ color: C.textDim, fontSize: 12, textAlign: "center", padding: 20 }}>Loading...</div>
+              ) : pmFilteredUnassigned.length === 0 ? (
+                <div style={{ color: C.textDim, fontSize: 12, textAlign: "center", padding: 20 }}>
+                  {pmUnassigned.length === 0 ? "Pool khali hai — New Mail ya Import CSV se shuru karo" : "Koi match nahi mila"}
+                </div>
+              ) : pmFilteredUnassigned.map(m => {
+                const filled = pmIsFilled(m)
+                return (
+                  <div key={m.id} draggable
+                    onDragStart={() => setPmDraggingId(m.id)}
+                    onDragEnd={() => setPmDraggingId(null)}
+                    onClick={() => pmOpenEditMail(m)}
+                    style={{
+                      display: "flex", alignItems: "center", gap: 10, padding: "9px 12px", borderRadius: 10, marginBottom: 6, cursor: "grab",
+                      background: C.card, border: `1.5px solid ${filled ? C.green + "55" : C.red + "55"}`,
+                      opacity: pmDraggingId === m.id ? 0.4 : 1, transition: "opacity .1s",
+                    }}>
+                    <div style={{ width: 30, height: 30, borderRadius: "50%", background: filled ? C.greenDim : C.redDim, color: filled ? C.green : C.red, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, fontWeight: 700, flexShrink: 0 }}>
+                      {(m.name || m.email)[0].toUpperCase()}
+                    </div>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontSize: 12, fontWeight: 600, color: C.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{m.name || m.company || m.email}</div>
+                      <div style={{ fontSize: 10, color: C.textMuted, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{m.email}</div>
+                    </div>
+                    <span style={{ fontSize: 9, fontWeight: 700, padding: "2px 6px", borderRadius: 4, background: filled ? C.greenDim : C.redDim, color: filled ? C.green : C.red, flexShrink: 0 }}>
+                      {filled ? "✓" : "⚠️"}
+                    </span>
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+
+          {/* Right — batches */}
+          <div style={{ overflowY: "auto", padding: 24 }}>
+            <div style={{ display: "flex", gap: 8, marginBottom: 20 }}>
+              <input placeholder="New batch name — e.g. 'Founders Outreach July'" value={pmNewBatchName} onChange={e => setPmNewBatchName(e.target.value)}
+                onKeyDown={e => e.key === "Enter" && pmCreateBatch()}
+                style={{ flex: 1, background: C.card, border: `1px solid ${C.border2}`, color: C.text, padding: "9px 14px", borderRadius: 8, fontSize: 13 }} />
+              <button onClick={pmCreateBatch} disabled={pmCreatingBatch} style={{ padding: "9px 20px", borderRadius: 8, border: "none", background: C.accent, color: "#fff", fontWeight: 700, fontSize: 13, cursor: pmCreatingBatch ? "not-allowed" : "pointer", opacity: pmCreatingBatch ? 0.6 : 1 }}>
+                {pmCreatingBatch ? <Spinner size={12} /> : "+ Create Batch"}
+              </button>
+            </div>
+
+            {pmBatches.length === 0 ? (
+              <div style={{ color: C.textDim, textAlign: "center", padding: 60 }}>Koi batch nahi hai — upar naam likh ke banao, phir pool se mails drag karo isme.</div>
+            ) : (
+              <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+                {pmBatches.map(b => {
+                  const members = pmMailsForBatch(b.id)
+                  const allFilled = members.length > 0 && members.every(pmIsFilled)
+                  const busy = pmBatchActionId === b.id
+                  const isDragOver = pmDragOverBatch === b.id
+                  return (
+                    <div key={b.id}
+                      onDragOver={e => { e.preventDefault(); setPmDragOverBatch(b.id) }}
+                      onDragLeave={() => setPmDragOverBatch(null)}
+                      onDrop={pmHandleDrop(b.id)}
+                      style={{
+                        background: C.card, border: `2px solid ${isDragOver ? C.accent : C.border2}`, borderRadius: 12, padding: 16,
+                        transition: "border-color .15s", boxShadow: isDragOver ? `0 0 0 4px ${C.accent}22` : "none",
+                      }}>
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+                        <div>
+                          <div style={{ fontWeight: 700, fontSize: 15 }}>{b.name}</div>
+                          <div style={{ fontSize: 11, color: allFilled ? C.green : C.textMuted, marginTop: 2 }}>
+                            {b.filled}/{b.total} filled {b.total > 0 && !allFilled && `— ${b.total - b.filled} incomplete`}
+                          </div>
+                        </div>
+                        <div style={{ display: "flex", gap: 8 }}>
+                          <button onClick={() => pmOpenSchedule(b.id)} disabled={!allFilled || members.length === 0} style={{
+                            padding: "7px 16px", borderRadius: 7, border: "none", fontSize: 12, fontWeight: 700, cursor: (!allFilled || members.length === 0) ? "not-allowed" : "pointer",
+                            background: (!allFilled || members.length === 0) ? C.border2 : C.accent, color: "#fff",
+                          }}>🚀 Schedule</button>
+                          <button onClick={() => pmDeleteBatch(b.id, b.name)} disabled={busy} style={{ padding: "7px 12px", borderRadius: 7, border: `1px solid ${C.redDim}`, background: "transparent", color: C.red, cursor: busy ? "not-allowed" : "pointer" }}>
+                            {busy ? <Spinner size={10} color={C.red} /> : "🗑"}
+                          </button>
+                        </div>
+                      </div>
+
+                      {members.length === 0 ? (
+                        <div style={{ fontSize: 11, color: C.textDim, textAlign: "center", padding: "16px 0", border: `1.5px dashed ${C.border2}`, borderRadius: 8 }}>
+                          Pool se koi bubble yaha drag karke drop karo
+                        </div>
+                      ) : (
+                        <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+                          {members.map(m => {
+                            const filled = pmIsFilled(m)
+                            return (
+                              <div key={m.id} draggable
+                                onDragStart={() => setPmDraggingId(m.id)}
+                                onDragEnd={() => setPmDraggingId(null)}
+                                onClick={() => pmOpenEditMail(m)}
+                                style={{
+                                  display: "flex", alignItems: "center", gap: 6, padding: "6px 10px", borderRadius: 20, cursor: "grab",
+                                  background: filled ? C.greenDim : C.redDim, border: `1px solid ${filled ? C.green + "44" : C.red + "44"}`,
+                                  opacity: pmDraggingId === m.id ? 0.4 : 1, fontSize: 11,
+                                }}>
+                                <span style={{ fontWeight: 600, color: C.text }}>{m.name || m.email}</span>
+                                <span style={{ color: filled ? C.green : C.red }}>{filled ? "✓" : "⚠️"}</span>
+                                <button onClick={e => { e.stopPropagation(); pmAssignToBatch(m.id, null) }} style={{ background: "none", border: "none", color: C.textMuted, cursor: "pointer", fontSize: 12, padding: 0, marginLeft: 2 }}>✕</button>
+                              </div>
+                            )
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  )
+                })}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
   {/* ── FOLLOW-UPS ── */}
       {activeView === "followups" && (
         <div style={{ padding: 24 }}>
@@ -3534,6 +3830,154 @@ const filledCount = followUpTemplates[dayIdx]?.filter(v => v?.body).length || 0
           </div>
         </>
       )}
+      {/* ── PERSONALIZED MAIL EDITOR ── */}
+      {pmEditorMail !== null && (
+        <>
+          <div onClick={pmCloseEditor} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.75)", zIndex: 1000, backdropFilter: "blur(4px)" }} />
+          <div style={{
+            position: "fixed", top: "50%", left: "50%", transform: "translate(-50%, -50%)",
+            width: "min(640px, 94vw)", maxHeight: "90vh", background: C.surface,
+            border: `1px solid ${C.border2}`, borderRadius: 16, zIndex: 1001,
+            display: "flex", flexDirection: "column", boxShadow: "0 32px 96px rgba(0,0,0,0.6)", overflow: "hidden",
+          }}>
+            <div style={{ padding: "16px 24px", borderBottom: `1px solid ${C.border}`, display: "flex", justifyContent: "space-between", alignItems: "center", background: C.card, flexShrink: 0 }}>
+              <div>
+                <div style={{ fontWeight: 700, fontSize: 15 }}>{pmEditorMail.id ? "✏️ Edit Mail" : "➕ New Personalized Mail"}</div>
+                {pmEditorDirty && <div style={{ fontSize: 11, color: C.yellow, marginTop: 2 }}>⚠️ Unsaved changes</div>}
+              </div>
+              <button onClick={pmCloseEditor} style={{ width: 32, height: 32, borderRadius: "50%", background: C.border2, border: "none", color: C.text, cursor: "pointer", fontSize: 16 }}>✕</button>
+            </div>
+            <div style={{ padding: 24, overflowY: "auto", display: "flex", flexDirection: "column", gap: 12 }}>
+              <div style={{ display: "flex", gap: 10 }}>
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontSize: 10, color: C.textMuted, marginBottom: 4, textTransform: "uppercase" }}>Email *</div>
+                  <input value={pmEditorDraft.email} onChange={e => pmUpdateDraft({ email: e.target.value })}
+                    style={{ width: "100%", background: C.card, border: `1px solid ${C.border2}`, color: C.text, padding: "8px 10px", borderRadius: 6, fontSize: 12, boxSizing: "border-box" }} />
+                </div>
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontSize: 10, color: C.textMuted, marginBottom: 4, textTransform: "uppercase" }}>Name</div>
+                  <input value={pmEditorDraft.name} onChange={e => pmUpdateDraft({ name: e.target.value })}
+                    style={{ width: "100%", background: C.card, border: `1px solid ${C.border2}`, color: C.text, padding: "8px 10px", borderRadius: 6, fontSize: 12, boxSizing: "border-box" }} />
+                </div>
+              </div>
+              <div style={{ display: "flex", gap: 10 }}>
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontSize: 10, color: C.textMuted, marginBottom: 4, textTransform: "uppercase" }}>Company</div>
+                  <input value={pmEditorDraft.company} onChange={e => pmUpdateDraft({ company: e.target.value })}
+                    style={{ width: "100%", background: C.card, border: `1px solid ${C.border2}`, color: C.text, padding: "8px 10px", borderRadius: 6, fontSize: 12, boxSizing: "border-box" }} />
+                </div>
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontSize: 10, color: C.textMuted, marginBottom: 4, textTransform: "uppercase" }}>City</div>
+                  <input value={pmEditorDraft.city} onChange={e => pmUpdateDraft({ city: e.target.value })}
+                    style={{ width: "100%", background: C.card, border: `1px solid ${C.border2}`, color: C.text, padding: "8px 10px", borderRadius: 6, fontSize: 12, boxSizing: "border-box" }} />
+                </div>
+              </div>
+              <div>
+                <div style={{ fontSize: 10, color: C.textMuted, marginBottom: 4, textTransform: "uppercase" }}>Subject * (is recipient ke liye unique)</div>
+                <input value={pmEditorDraft.subject} onChange={e => pmUpdateDraft({ subject: e.target.value })}
+                  style={{ width: "100%", background: C.card, border: `1px solid ${pmEditorDraft.subject.trim() ? C.border2 : C.red + "77"}`, color: C.text, padding: "9px 12px", borderRadius: 6, fontSize: 13, fontWeight: 600, boxSizing: "border-box" }} />
+              </div>
+              <div>
+                <div style={{ fontSize: 10, color: C.textMuted, marginBottom: 4, textTransform: "uppercase" }}>Body *</div>
+                <textarea value={pmEditorDraft.body} onChange={e => pmUpdateDraft({ body: e.target.value })}
+                  style={{ width: "100%", minHeight: 220, background: C.card, border: `1px solid ${pmEditorDraft.body.trim() ? C.border2 : C.red + "77"}`, color: C.text, padding: 12, borderRadius: 6, fontSize: 13, lineHeight: 1.6, resize: "vertical", boxSizing: "border-box", fontFamily: "monospace" }} />
+              </div>
+            </div>
+            <div style={{ padding: "14px 24px", borderTop: `1px solid ${C.border}`, background: C.card, display: "flex", justifyContent: "space-between", alignItems: "center", flexShrink: 0 }}>
+              {pmEditorMail.id ? (
+                <button onClick={() => pmDeleteMail(pmEditorMail.id)} style={{ padding: "8px 16px", borderRadius: 7, border: `1px solid ${C.redDim}`, background: "transparent", color: C.red, fontSize: 12, cursor: "pointer" }}>🗑 Delete</button>
+              ) : <div />}
+              <button onClick={pmSaveMail} disabled={pmEditorSaving} style={{ padding: "9px 24px", borderRadius: 8, border: "none", background: C.accent, color: "#fff", fontWeight: 700, fontSize: 13, cursor: pmEditorSaving ? "not-allowed" : "pointer", display: "inline-flex", alignItems: "center", gap: 8 }}>
+                {pmEditorSaving && <Spinner size={12} />}
+                {pmEditorSaving ? "Saving..." : "✅ Save"}
+              </button>
+            </div>
+          </div>
+        </>
+      )}
+
+      {/* ── PERSONALIZED CSV IMPORT MODAL ── */}
+      {pmShowCsvModal && (
+        <>
+          <div onClick={() => { if (!pmImportingCsv) { setPmShowCsvModal(false); setPmCsvParsedRows([]) } }} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.75)", zIndex: 1000, backdropFilter: "blur(4px)" }} />
+          <div style={{
+            position: "fixed", top: "50%", left: "50%", transform: "translate(-50%, -50%)",
+            width: "min(820px, 94vw)", maxHeight: "88vh", background: C.surface,
+            border: `1px solid ${C.border2}`, borderRadius: 16, zIndex: 1001,
+            display: "flex", flexDirection: "column", boxShadow: "0 32px 96px rgba(0,0,0,0.6)", overflow: "hidden",
+          }}>
+            <div style={{ padding: "16px 24px", borderBottom: `1px solid ${C.border}`, background: C.card, flexShrink: 0 }}>
+              <div style={{ fontWeight: 700, fontSize: 15 }}>📁 Import — {pmCsvFileName}</div>
+              <div style={{ fontSize: 11, color: C.textMuted, marginTop: 2 }}>{pmCsvParsedRows.length} rows detected · {pmCsvSelectedCount} selected. Subject/Body baad mein har mail kholke bharo.</div>
+            </div>
+            <div style={{ padding: "12px 24px", borderBottom: `1px solid ${C.border}`, display: "flex", gap: 8, flexShrink: 0 }}>
+              <button onClick={() => pmToggleCsvAll(true)} style={{ fontSize: 11, padding: "6px 12px", borderRadius: 6, border: `1px solid ${C.border2}`, background: "transparent", color: C.textMuted, cursor: "pointer" }}>Select All</button>
+              <button onClick={() => pmToggleCsvAll(false)} style={{ fontSize: 11, padding: "6px 12px", borderRadius: 6, border: `1px solid ${C.border2}`, background: "transparent", color: C.textMuted, cursor: "pointer" }}>Select None</button>
+            </div>
+            <div style={{ flex: 1, overflowY: "auto", padding: "8px 24px" }}>
+              {pmCsvParsedRows.map((r, i) => (
+                <div key={i} onClick={() => pmToggleCsvRow(i)} style={{ display: "flex", alignItems: "center", gap: 12, padding: "9px 12px", borderRadius: 8, cursor: "pointer", marginBottom: 6, background: r._selected ? C.accentDim : C.card, border: `1px solid ${r._selected ? C.accent + "55" : C.border2}` }}>
+                  <input type="checkbox" checked={r._selected} onChange={() => pmToggleCsvRow(i)} onClick={e => e.stopPropagation()} />
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: 12, fontWeight: 600 }}>{r.company || r.name || r.email}</div>
+                    <div style={{ fontSize: 11, color: C.textMuted }}>{r.email}</div>
+                  </div>
+                </div>
+              ))}
+            </div>
+            <div style={{ padding: "14px 24px", borderTop: `1px solid ${C.border}`, background: C.card, display: "flex", justifyContent: "flex-end", flexShrink: 0 }}>
+              <button onClick={pmConfirmCsvImport} disabled={pmCsvSelectedCount === 0 || pmImportingCsv} style={{
+                padding: "9px 22px", borderRadius: 7, border: "none", cursor: pmImportingCsv ? "not-allowed" : "pointer",
+                background: pmCsvSelectedCount === 0 ? C.border2 : C.accent, color: "#fff", fontSize: 13, fontWeight: 700, display: "inline-flex", alignItems: "center", gap: 8,
+              }}>{pmImportingCsv && <Spinner size={13} />}{pmImportingCsv ? "Importing..." : `📥 Import ${pmCsvSelectedCount} to Pool`}</button>
+            </div>
+          </div>
+        </>
+      )}
+
+      {/* ── PERSONALIZED BATCH SCHEDULE MODAL ── */}
+      {pmScheduleBatchId && (() => {
+        const batch = pmBatches.find(b => b.id === pmScheduleBatchId)
+        return (
+          <>
+            <div onClick={() => !pmSubmittingSchedule && setPmScheduleBatchId(null)} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.75)", zIndex: 1000, backdropFilter: "blur(4px)" }} />
+            <div style={{
+              position: "fixed", top: "50%", left: "50%", transform: "translate(-50%, -50%)",
+              width: "min(500px, 92vw)", background: C.surface, border: `1px solid ${C.border2}`, borderRadius: 16, zIndex: 1001,
+              boxShadow: "0 32px 96px rgba(0,0,0,0.6)", overflow: "hidden",
+            }}>
+              <div style={{ padding: "16px 24px", borderBottom: `1px solid ${C.border}`, background: C.card }}>
+                <div style={{ fontWeight: 700, fontSize: 15 }}>🚀 Schedule — {batch?.name}</div>
+                <div style={{ fontSize: 11, color: C.textMuted, marginTop: 2 }}>{batch?.total} recipients, sabki apni unique subject/body jayegi</div>
+              </div>
+              <div style={{ padding: 24, display: "flex", flexDirection: "column", gap: 14 }}>
+                <div style={{ fontSize: 11, color: C.textDim, background: C.accentDim, padding: "8px 12px", borderRadius: 6 }}>
+                  ℹ️ Senders aur Gap-settings Compose tab se le rahe hain ({senders.length} sender{senders.length !== 1 ? "s" : ""} active, {gapMode === "manual" ? `fixed ${manualGapSec}s` : `random ${autoMinSec}-${autoMaxSec}s`})
+                </div>
+                <div>
+                  <div style={{ fontSize: 11, color: C.textMuted, marginBottom: 8, textTransform: "uppercase" }}>When to send</div>
+                  <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                    <button onClick={() => setPmScheduleMode("now")} style={{ padding: "7px 14px", borderRadius: 7, fontSize: 12, cursor: "pointer", border: `1px solid ${pmScheduleMode === "now" ? C.accent : C.border2}`, background: pmScheduleMode === "now" ? C.accentDim : "transparent", color: pmScheduleMode === "now" ? C.accent : C.textMuted }}>🚀 Send Now</button>
+                    <button onClick={() => setPmScheduleMode("later")} style={{ padding: "7px 14px", borderRadius: 7, fontSize: 12, cursor: "pointer", border: `1px solid ${pmScheduleMode === "later" ? C.accent : C.border2}`, background: pmScheduleMode === "later" ? C.accentDim : "transparent", color: pmScheduleMode === "later" ? C.accent : C.textMuted }}>🕓 Later</button>
+                    {pmScheduleMode === "later" && (
+                      <input type="datetime-local" value={pmScheduledDateTime} onChange={e => setPmScheduledDateTime(e.target.value)}
+                        min={new Date(Date.now() + 5 * 60000).toISOString().slice(0, 16)}
+                        style={{ padding: "7px 10px", borderRadius: 7, border: `1px solid ${C.border2}`, fontSize: 12 }} />
+                    )}
+                  </div>
+                </div>
+              </div>
+              <div style={{ padding: "14px 24px", borderTop: `1px solid ${C.border}`, background: C.card, display: "flex", justifyContent: "flex-end", gap: 10 }}>
+                <button onClick={() => setPmScheduleBatchId(null)} disabled={pmSubmittingSchedule} style={{ padding: "9px 18px", borderRadius: 8, border: `1px solid ${C.border2}`, background: "transparent", color: C.textMuted, fontSize: 13, cursor: "pointer" }}>Cancel</button>
+                <button onClick={pmSubmitSchedule} disabled={pmSubmittingSchedule} style={{ padding: "9px 22px", borderRadius: 8, border: "none", background: C.accent, color: "#fff", fontSize: 13, fontWeight: 700, cursor: pmSubmittingSchedule ? "not-allowed" : "pointer", display: "inline-flex", alignItems: "center", gap: 8 }}>
+                  {pmSubmittingSchedule && <Spinner size={13} />}
+                  {pmSubmittingSchedule ? "Scheduling..." : "🚀 Confirm & Schedule"}
+                </button>
+              </div>
+            </div>
+          </>
+        )
+      })()}
       {sendNowTarget && (
         <>
           <div onClick={() => !sendingNowId && setSendNowTarget(null)} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.75)", zIndex: 1000, backdropFilter: "blur(4px)" }} />
