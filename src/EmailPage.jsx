@@ -97,31 +97,10 @@ const mapCsvToRecipients = (rows) => {
   const allEmailsIdx = guessColumnIndex(headers, ["all emails"])
   const companyIdx = guessColumnIndex(headers, ["business name", "company name", "company"])
   const nameIdx = guessColumnIndex(headers, ["person 1 name", "contact name", "full name", "name"])
-  const cityIdx = guessColumnIndex(headers, ["city"])
-  const customLineIdx = guessColumnIndex(headers, ["custom line", "custom_line", "personalization", "custom message", "note"])
-
-  return rows.slice(1).map(r => {
-    let email = emailIdx !== -1 ? (r[emailIdx] || "").trim() : ""
-    if (!email && allEmailsIdx !== -1) email = (r[allEmailsIdx] || "").split(";")[0].trim()
-    return {
-      email,
-      name: nameIdx !== -1 ? (r[nameIdx] || "").trim() : "",
-      company: companyIdx !== -1 ? (r[companyIdx] || "").trim() : "",
-      city: cityIdx !== -1 ? (r[cityIdx] || "").trim() : "",
-      customLine: customLineIdx !== -1 ? (r[customLineIdx] || "").trim() : "",
-    }
-  }).filter(r => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(r.email))
-}
-const mapCsvToPersonalizedMails = (rows) => {
-  if (rows.length < 2) return []
-  const headers = rows[0]
-  const emailIdx = guessColumnIndex(headers, ["best email", "email address", "email"])
-  const allEmailsIdx = guessColumnIndex(headers, ["all emails"])
-  const companyIdx = guessColumnIndex(headers, ["business name", "company name", "company"])
-  const nameIdx = guessColumnIndex(headers, ["person 1 name", "contact name", "full name", "name"])
-  const cityIdx = guessColumnIndex(headers, ["city"])
+const cityIdx = guessColumnIndex(headers, ["city"])
   const subjectIdx = guessColumnIndex(headers, ["subject"])
   const bodyIdx = guessColumnIndex(headers, ["body"])
+  const scheduledAtIdx = guessColumnIndex(headers, ["scheduled_at", "scheduled at", "schedule time", "send at", "send_at"])
 
   return rows.slice(1).map(r => {
     let email = emailIdx !== -1 ? (r[emailIdx] || "").trim() : ""
@@ -133,8 +112,39 @@ const mapCsvToPersonalizedMails = (rows) => {
       city: cityIdx !== -1 ? (r[cityIdx] || "").trim() : "",
       subject: subjectIdx !== -1 ? (r[subjectIdx] || "").trim() : "",
       body: bodyIdx !== -1 ? (r[bodyIdx] || "").trim() : "",
+      scheduledAt: scheduledAtIdx !== -1 ? parseIstToUtcIso((r[scheduledAtIdx] || "").trim()) : "", // 👈 NEW
     }
   }).filter(r => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(r.email))
+}
+// Parses common date/time formats (YYYY-MM-DD HH:mm, DD/MM/YYYY HH:mm, etc.)
+// ALWAYS as IST wall-clock time (regardless of browser's own timezone),
+// returns UTC ISO string ready to save/send.
+const parseIstToUtcIso = (str) => {
+  if (!str) return ""
+  const s = String(str).trim()
+  let m, y, mo, d, h, mi
+  if ((m = s.match(/^(\d{4})-(\d{2})-(\d{2})[ T](\d{1,2}):(\d{2})/))) {
+    [, y, mo, d, h, mi] = m
+  } else if ((m = s.match(/^(\d{1,2})[\/-](\d{1,2})[\/-](\d{4})[ T](\d{1,2}):(\d{2})/))) {
+    [, d, mo, y, h, mi] = m
+  } else return ""
+  const utcMs = Date.UTC(+y, +mo - 1, +d, +h, +mi) - 5.5 * 60 * 60 * 1000
+  return new Date(utcMs).toISOString()
+}
+
+// Reverse — for showing a saved UTC ISO back as an IST datetime-local value
+const utcIsoToIstLocalInput = (iso) => {
+  if (!iso) return ""
+  const istMs = new Date(iso).getTime() + 5.5 * 60 * 60 * 1000
+  const d = new Date(istMs)
+  const pad = (n) => String(n).padStart(2, "0")
+  return `${d.getUTCFullYear()}-${pad(d.getUTCMonth() + 1)}-${pad(d.getUTCDate())}T${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())}`
+}
+
+// Same input format datetime-local gives → converts assuming that value IS IST wall-clock
+const istLocalInputToUtcIso = (localVal) => {
+  if (!localVal) return ""
+  return parseIstToUtcIso(localVal.replace("T", " "))
 }
 // ============================================================
 // COLORS
@@ -589,7 +599,7 @@ const handleCreateGroup = async () => {
   const [loadingPm, setLoadingPm] = useState(false)
   const [pmSearchFilter, setPmSearchFilter] = useState("")
   const [pmEditorMail, setPmEditorMail] = useState(null)
-  const [pmEditorDraft, setPmEditorDraft] = useState({ email: "", name: "", company: "", city: "", subject: "", body: "" })
+const [pmEditorDraft, setPmEditorDraft] = useState({ email: "", name: "", company: "", city: "", subject: "", body: "", scheduledAt: "" })
   const [pmEditorSaving, setPmEditorSaving] = useState(false)
   const [pmEditorDirty, setPmEditorDirty] = useState(false)
   const [pmNewBatchName, setPmNewBatchName] = useState("")
@@ -623,21 +633,22 @@ const handleCreateGroup = async () => {
   const pmMailsForBatch = (batchId) => pmMails.filter(m => m.batchId === batchId)
   const pmIsFilled = (m) => !!(m.subject && m.body)
 
-  const pmOpenNewMail = () => {
-    setPmEditorMail({}); setPmEditorDraft({ email: "", name: "", company: "", city: "", subject: "", body: "" }); setPmEditorDirty(false)
+const pmOpenNewMail = () => {
+    setPmEditorMail({}); setPmEditorDraft({ email: "", name: "", company: "", city: "", subject: "", body: "", scheduledAt: "" }); setPmEditorDirty(false)
   }
   const pmOpenEditMail = (m) => {
     setPmEditorMail(m)
-    setPmEditorDraft({ email: m.email, name: m.name || "", company: m.company || "", city: m.city || "", subject: m.subject || "", body: m.body || "" })
+    setPmEditorDraft({ email: m.email, name: m.name || "", company: m.company || "", city: m.city || "", subject: m.subject || "", body: m.body || "", scheduledAt: m.scheduledAt || "" })
     setPmEditorDirty(false)
   }
   const pmUpdateDraft = (patch) => { setPmEditorDraft(prev => ({ ...prev, ...patch })); setPmEditorDirty(true) }
 
-  const pmSaveMail = async () => {
+const pmSaveMail = async () => {
     if (!pmEditorDraft.email.trim()) { showToast("Email khali hai — bharo pehle!", "error"); return false }
     setPmEditorSaving(true)
     try {
-      const { mail } = await api.savePersonalizedMail({ id: pmEditorMail?.id, ...pmEditorDraft })
+      const payload = { ...pmEditorDraft, scheduledAt: pmEditorDraft.scheduledAt ? istLocalInputToUtcIso(pmEditorDraft.scheduledAt) : "" }
+      const { mail } = await api.savePersonalizedMail({ id: pmEditorMail?.id, ...payload })
       await loadPmData(); setPmEditorDirty(false); setPmEditorMail(mail)
       showToast("Mail saved!", "success")
       return true
@@ -3918,10 +3929,20 @@ const filledCount = followUpTemplates[dayIdx]?.filter(v => v?.body).length || 0
                 <input value={pmEditorDraft.subject} onChange={e => pmUpdateDraft({ subject: e.target.value })}
                   style={{ width: "100%", background: C.card, border: `1px solid ${pmEditorDraft.subject.trim() ? C.border2 : C.red + "77"}`, color: C.text, padding: "9px 12px", borderRadius: 6, fontSize: 13, fontWeight: 600, boxSizing: "border-box" }} />
               </div>
-              <div>
+             <div>
                 <div style={{ fontSize: 10, color: C.textMuted, marginBottom: 4, textTransform: "uppercase" }}>Body *</div>
                 <textarea value={pmEditorDraft.body} onChange={e => pmUpdateDraft({ body: e.target.value })}
                   style={{ width: "100%", minHeight: 220, background: C.card, border: `1px solid ${pmEditorDraft.body.trim() ? C.border2 : C.red + "77"}`, color: C.text, padding: 12, borderRadius: 6, fontSize: 13, lineHeight: 1.6, resize: "vertical", boxSizing: "border-box", fontFamily: "monospace" }} />
+              </div>
+              <div>
+                <div style={{ fontSize: 10, color: C.textMuted, marginBottom: 4, textTransform: "uppercase" }}>📅 Schedule Time (optional — IST)</div>
+                <input type="datetime-local"
+                  value={pmEditorDraft.scheduledAt && pmEditorDraft.scheduledAt.includes("T") && !pmEditorDraft.scheduledAt.endsWith("Z") ? pmEditorDraft.scheduledAt : (pmEditorDraft.scheduledAt ? utcIsoToIstLocalInput(pmEditorDraft.scheduledAt) : "")}
+                  onChange={e => pmUpdateDraft({ scheduledAt: e.target.value })}
+                  style={{ width: "100%", background: C.card, border: `1px solid ${C.border2}`, color: C.text, padding: "8px 10px", borderRadius: 6, fontSize: 12, boxSizing: "border-box" }} />
+                <div style={{ fontSize: 10, color: C.textDim, marginTop: 4 }}>
+                  Khaali chhodo agar batch schedule ke time par normal gap-stagger se bhejni hai. Bharo agar isi ek email ko ek EXACT time pe bhejna hai — us time yeh recipient guaranteed jaayega, chahe batch ke baaki emails abhi bhi wait kar rahe hon.
+                </div>
               </div>
             </div>
             <div style={{ padding: "14px 24px", borderTop: `1px solid ${C.border}`, background: C.card, display: "flex", justifyContent: "space-between", alignItems: "center", flexShrink: 0 }}>
@@ -3959,9 +3980,10 @@ const filledCount = followUpTemplates[dayIdx]?.filter(v => v?.body).length || 0
               {pmCsvParsedRows.map((r, i) => (
                 <div key={i} onClick={() => pmToggleCsvRow(i)} style={{ display: "flex", alignItems: "center", gap: 12, padding: "9px 12px", borderRadius: 8, cursor: "pointer", marginBottom: 6, background: r._selected ? C.accentDim : C.card, border: `1px solid ${r._selected ? C.accent + "55" : C.border2}` }}>
                   <input type="checkbox" checked={r._selected} onChange={() => pmToggleCsvRow(i)} onClick={e => e.stopPropagation()} />
-                  <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ fontSize: 12, fontWeight: 600 }}>{r.company || r.name || r.email}</div>
                     <div style={{ fontSize: 11, color: C.textMuted }}>{r.email}</div>
+                    {r.scheduledAt && <div style={{ fontSize: 10, color: C.accent, marginTop: 2 }}>📅 {new Date(r.scheduledAt).toLocaleString("en-IN", { timeZone: "Asia/Kolkata" })} IST</div>}
                   </div>
                 </div>
               ))}
