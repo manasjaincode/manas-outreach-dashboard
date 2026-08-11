@@ -97,7 +97,29 @@ const mapCsvToRecipients = (rows) => {
   const allEmailsIdx = guessColumnIndex(headers, ["all emails"])
   const companyIdx = guessColumnIndex(headers, ["business name", "company name", "company"])
   const nameIdx = guessColumnIndex(headers, ["person 1 name", "contact name", "full name", "name"])
-const cityIdx = guessColumnIndex(headers, ["city"])
+  const cityIdx = guessColumnIndex(headers, ["city"])
+  const customLineIdx = guessColumnIndex(headers, ["custom line", "custom_line", "personalization", "custom message", "note"])
+
+  return rows.slice(1).map(r => {
+    let email = emailIdx !== -1 ? (r[emailIdx] || "").trim() : ""
+    if (!email && allEmailsIdx !== -1) email = (r[allEmailsIdx] || "").split(";")[0].trim()
+    return {
+      email,
+      name: nameIdx !== -1 ? (r[nameIdx] || "").trim() : "",
+      company: companyIdx !== -1 ? (r[companyIdx] || "").trim() : "",
+      city: cityIdx !== -1 ? (r[cityIdx] || "").trim() : "",
+      customLine: customLineIdx !== -1 ? (r[customLineIdx] || "").trim() : "",
+    }
+  }).filter(r => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(r.email))
+}
+const mapCsvToPersonalizedMails = (rows) => {
+  if (rows.length < 2) return []
+  const headers = rows[0]
+  const emailIdx = guessColumnIndex(headers, ["best email", "email address", "email"])
+  const allEmailsIdx = guessColumnIndex(headers, ["all emails"])
+  const companyIdx = guessColumnIndex(headers, ["business name", "company name", "company"])
+  const nameIdx = guessColumnIndex(headers, ["person 1 name", "contact name", "full name", "name"])
+  const cityIdx = guessColumnIndex(headers, ["city"])
   const subjectIdx = guessColumnIndex(headers, ["subject"])
   const bodyIdx = guessColumnIndex(headers, ["body"])
   const scheduledAtIdx = guessColumnIndex(headers, ["scheduled_at", "scheduled at", "schedule time", "send at", "send_at"])
@@ -112,7 +134,7 @@ const cityIdx = guessColumnIndex(headers, ["city"])
       city: cityIdx !== -1 ? (r[cityIdx] || "").trim() : "",
       subject: subjectIdx !== -1 ? (r[subjectIdx] || "").trim() : "",
       body: bodyIdx !== -1 ? (r[bodyIdx] || "").trim() : "",
-      scheduledAt: scheduledAtIdx !== -1 ? parseIstToUtcIso((r[scheduledAtIdx] || "").trim()) : "", // 👈 NEW
+      scheduledAt: scheduledAtIdx !== -1 ? parseIstToUtcIso((r[scheduledAtIdx] || "").trim()) : "",
     }
   }).filter(r => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(r.email))
 }
