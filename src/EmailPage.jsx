@@ -1557,13 +1557,13 @@ useEffect(() => { if (activeView === "analytics" || activeView === "tracking") l
     const found = tags.find(t => typeof t === "string" && t.startsWith("batch_"))
     return found || "untagged"
   }
-  const eventsByEmailBatch = events.reduce((acc, ev) => {
-    const key = `${ev.email}__${extractBatchId(ev)}`
-    if (!acc[key]) acc[key] = { email: ev.email, batchId: extractBatchId(ev), events: [] }
+const eventsByEmailBatch = events.reduce((acc, ev) => {
+    const emailLower = String(ev.email || "").toLowerCase().trim()
+    const key = `${emailLower}__${extractBatchId(ev)}`
+    if (!acc[key]) acc[key] = { email: emailLower, batchId: extractBatchId(ev), events: [] }
     acc[key].events.push(ev)
     return acc
   }, {})
-
   const sent = stats?.requests || 0
   const delivered = stats?.delivered || 0
   const opened = stats?.uniqueOpens || 0
