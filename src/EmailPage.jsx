@@ -1226,6 +1226,42 @@ const handleDeleteLog = async (messageId) => {
   const [tmVariantSubject, setTmVariantSubject] = useState("")
   const [tmVariantBody, setTmVariantBody] = useState("")
 const [selectedLogEntry, setSelectedLogEntry] = useState(null)
+const [storyDateFilter, setStoryDateFilter] = useState("") // "" = sab, warna "YYYY-MM-DD"
+  const [storySearchFilter, setStorySearchFilter] = useState("")
+
+  const IST = { timeZone: "Asia/Kolkata" }
+  const toIstDateKey = (iso) => iso ? new Date(iso).toLocaleDateString("en-CA", IST) : ""
+
+  const availableStoryDates = [...new Set(
+    sentLog.filter(l => l.time && (l.status === "sent" || l.status === "scheduled")).map(l => toIstDateKey(l.time))
+  )].sort((a, b) => new Date(b) - new Date(a))
+
+  const storyEntries = sentLog
+    .filter(l => l.status === "sent" || l.status === "scheduled")
+    .filter(l => !storyDateFilter || toIstDateKey(l.time) === storyDateFilter)
+    .filter(l => !storySearchFilter || (l.email + (l.company || "") + (l.subject || "")).toLowerCase().includes(storySearchFilter.toLowerCase()))
+    .map(l => {
+      const emailLower = String(l.email || "").toLowerCase()
+      const key = `${emailLower}__${l.batchId}`
+      const evs = eventsByEmailBatch[key]?.events || []
+      const isSpam = evs.some(e => e.event === "spam")
+      const isBounced = evs.some(e => e.event === "bounced" || e.event === "hardBounce" || e.event === "softBounce")
+      const isOpened = evs.some(e => e.event === "opened")
+      const isClicked = evs.some(e => e.event === "clicked")
+      const isUnsub = evs.some(e => e.event === "unsubscribed")
+      const isFollowUp = String(l.variantUsed || "").toLowerCase().includes("followup")
+      const replyMatch = replies.find(r => r.batchId === l.batchId && r.email.toLowerCase() === emailLower)
+      return { ...l, evs, isSpam, isBounced, isOpened, isClicked, isUnsub, isFollowUp, hasReply: !!replyMatch, isReplyFresh: replyMatch && replyMatch.viewCount < 4 }
+    })
+    .sort((a, b) => new Date(b.time) - new Date(a.time))
+
+  const storyGroupedByDate = storyEntries.reduce((acc, e) => {
+    const key = toIstDateKey(e.time)
+    if (!acc[key]) acc[key] = []
+    acc[key].push(e)
+    return acc
+  }, {})
+  const storyDateKeys = Object.keys(storyGroupedByDate).sort((a, b) => new Date(b) - new Date(a))
 const [sendSubmitting, setSendSubmitting] = useState(false);
   const tmAddIndustry = () => {
 
@@ -1657,8 +1693,7 @@ const senderStats = senders.map(sdr => {
 
           { id: "templates", label: "📚 My Templates" },
           { id: "followups", label: `⏰ Follow-ups (${followUps.length})` },
-          { id: "tracking", label: `👁 Per-Email Tracking` },
-          { id: "analytics", label: "📊 Analytics" },
+       { id: "story", label: "📖 Story" },
           { id: "senders", label: `📮 Senders (${senders.length}/${allSenders.length})` },
           { id: "sent", label: `📤 Sent Log (${sentLog.length})` },
           { id: "personalized", label: `🎯 Personalized (${pmBatches.length})` },
@@ -2822,7 +2857,77 @@ const filledCount = followUpTemplates[dayIdx]?.filter(v => v?.body).length || 0
           )}
         </div>
       )}
+{/* ── STORY (unified Sent Log + Tracking + Analytics) ── */}
+      {activeView === "story" && (
+        <div style={{ padding: 24 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16, flexWrap: "wrap", gap: 10 }}>
+            <h2 style={{ margin: 0, fontWeight: 700, fontSize: 20 }}>📖 Story ({storyEntries.length})</h2>
+            <button onClick={() => { loadSentLog(); loadStats(); loadReplies() }} style={{ padding: "8px 16px", borderRadius: 7, border: `1px solid ${C.border2}`, background: C.card, color: C.text, cursor: "pointer", fontSize: 12 }}>🔄 Refresh</button>
+          </div>
 
+          <div style={{ display: "flex", gap: 8, marginBottom: 16, flexWrap: "wrap" }}>
+            <button onClick={() => setStoryDateFilter("")} style={{
+              padding: "6px 14px", borderRadius: 6, fontSize: 12, cursor: "pointer",
+              border: `1px solid ${storyDateFilter === "" ? C.accent : C.border2}`,
+              background: storyDateFilter === "" ? C.accentDim : "transparent",
+              color: storyDateFilter === "" ? C.accent : C.textMuted,
+            }}>All Dates</button>
+            {availableStoryDates.map(d => (
+              <button key={d} onClick={() => setStoryDateFilter(d)} style={{
+                padding: "6px 14px", borderRadius: 6, fontSize: 12, cursor: "pointer",
+                border: `1px solid ${storyDateFilter === d ? C.accent : C.border2}`,
+                background: storyDateFilter === d ? C.accentDim : "transparent",
+                color: storyDateFilter === d ? C.accent : C.textMuted,
+              }}>{new Date(d).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" })}</button>
+            ))}
+          </div>
+
+          <input placeholder="Search by email, company, subject..." value={storySearchFilter} onChange={e => setStorySearchFilter(e.target.value)}
+            style={{ width: "100%", background: C.card, border: `1px solid ${C.border2}`, color: C.text, padding: "8px 12px", borderRadius: 6, fontSize: 12, boxSizing: "border-box", marginBottom: 20 }} />
+
+          {storyEntries.length === 0 ? (
+            <div style={{ color: C.textMuted, textAlign: "center", padding: 60 }}>Is date/search ke liye koi mail nahi mili.</div>
+          ) : (
+            storyDateKeys.map(dateKey => (
+              <div key={dateKey} style={{ marginBottom: 28 }}>
+                <div style={{ fontSize: 13, fontWeight: 700, color: C.accent, marginBottom: 10, paddingBottom: 6, borderBottom: `1px solid ${C.border}` }}>
+                  📅 {new Date(dateKey).toLocaleDateString("en-IN", { weekday: "long", day: "2-digit", month: "long", year: "numeric" })}
+                  <span style={{ color: C.textDim, fontWeight: 400, marginLeft: 8 }}>({storyGroupedByDate[dateKey].length} mails)</span>
+                </div>
+                <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                  {storyGroupedByDate[dateKey].map((e, i) => (
+                    <div key={e.id || i} onClick={() => openThread(e.batchId, e.email)} style={{
+                      background: C.card, border: `1.5px solid ${e.isSpam ? C.red : e.isUnsub || e.isBounced ? C.yellow : C.border2}`,
+                      borderRadius: 8, padding: "12px 16px", cursor: "pointer", display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap",
+                    }}>
+                      <div style={{ flex: 1, minWidth: 200 }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                          <span style={{ fontWeight: 700, fontSize: 13 }}>{e.company || e.email}</span>
+                          {e.isFollowUp && <span style={{ fontSize: 9, padding: "2px 6px", borderRadius: 4, background: C.accentDim, color: C.accent, fontWeight: 700 }}>🔁 {String(e.variantUsed).replace(/\D/g, "") || "FU"}</span>}
+                          {e.hasReply && <span style={{ fontSize: 9, padding: "2px 6px", borderRadius: 4, background: "#FF174430", color: "#FF1744", fontWeight: 700, animation: e.isReplyFresh ? "pulseGlow 1.5s infinite" : "none" }}>📩 REPLY</span>}
+                        </div>
+                        <div style={{ fontSize: 11, color: C.textMuted, marginTop: 2 }}>{e.email} · via {e.sender}</div>
+                        {e.subject && <div style={{ fontSize: 11, color: C.textDim, marginTop: 2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{e.subject}</div>}
+                      </div>
+                      <div style={{ display: "flex", gap: 5, flexWrap: "wrap", justifyContent: "flex-end" }}>
+                        {e.isSpam && <span style={{ fontSize: 10, padding: "2px 7px", borderRadius: 4, background: C.redDim, color: C.red, fontWeight: 700 }}>🚨 Spam</span>}
+                        {e.isUnsub && <span style={{ fontSize: 10, padding: "2px 7px", borderRadius: 4, background: C.yellowDim, color: C.yellow }}>🚫 Unsub</span>}
+                        {e.isBounced && <span style={{ fontSize: 10, padding: "2px 7px", borderRadius: 4, background: C.yellowDim, color: C.yellow }}>⚠️ Bounced</span>}
+                        {e.isOpened && <span style={{ fontSize: 10, padding: "2px 7px", borderRadius: 4, background: C.accentDim, color: C.accent }}>👁 Opened</span>}
+                        {e.isClicked && <span style={{ fontSize: 10, padding: "2px 7px", borderRadius: 4, background: C.cyanDim, color: C.cyan }}>🖱 Clicked</span>}
+                        {!e.isOpened && !e.isSpam && !e.isBounced && <span style={{ fontSize: 10, padding: "2px 7px", borderRadius: 4, background: C.border, color: C.textDim }}>⏳ Pending</span>}
+                      </div>
+                      <div style={{ fontSize: 10, color: C.textDim, whiteSpace: "nowrap" }}>
+                        {new Date(e.time).toLocaleTimeString("en-IN", { timeZone: "Asia/Kolkata", hour: "2-digit", minute: "2-digit", hour12: true })}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ))
+          )}
+        </div>
+      )}
       {/* ── PER-EMAIL TRACKING ── */}
       {activeView === "tracking" && (
         
