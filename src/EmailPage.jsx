@@ -1552,10 +1552,13 @@ const startPolling = (jobId, total, batchId) => {
 useEffect(() => { if (activeView === "analytics" || activeView === "tracking") loadStats() }, [activeView])
     useEffect(() => { if (activeView === "sent") loadSentLog() }, [activeView])
 
-  const extractBatchId = (ev) => {
+ const extractBatchId = (ev) => {
     const tags = ev.tags || []
     const found = tags.find(t => typeof t === "string" && t.startsWith("batch_"))
-    return found || "untagged"
+    if (!found) return "untagged"
+    // Brevo kabhi-kabhi multiple tags ko ek hi comma-separated string mein
+    // wapas bhejta hai (e.g. "batch_xxx,followup_2") — sirf batch_ wala part lo.
+    return found.split(",")[0].trim()
   }
 const eventsByEmailBatch = events.reduce((acc, ev) => {
     const emailLower = String(ev.email || "").toLowerCase().trim()
