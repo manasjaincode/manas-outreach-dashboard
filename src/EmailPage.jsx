@@ -763,24 +763,33 @@ const pmHandleCsvFile = (e) => {
 
   const pmOpenSchedule = (batchId) => { setPmScheduleBatchId(batchId); setPmScheduleMode("now"); setPmScheduledDateTime("") }
 
-  const pmSubmitSchedule = async () => {
-    const batch = pmBatches.find(b => b.id === pmScheduleBatchId)
-    if (!batch) return
-    if (senders.length === 0) { showToast("Kam se kam ek sender select karo (Compose tab se)", "error"); return }
-    if (pmScheduleMode === "later" && !pmScheduledDateTime) { showToast("Date/time select karo", "error"); return }
-    setPmSubmittingSchedule(true)
-    try {
-      await api.sendPersonalizedBatch({
-        batchId: batch.id, senders, ccEmail: ccEmail.trim(), attachments,
-        gapMode, manualGapSec, autoMinSec, autoMaxSec,
-        baseTimeIso: pmScheduleMode === "later" ? new Date(pmScheduledDateTime).toISOString() : undefined,
-      })
-      showToast(`"${batch.name}" schedule ho gaya!`, "success")
-      setPmScheduleBatchId(null)
-      await loadEmailJobs()
-    } catch (err) { showApiError(err) }
-    setPmSubmittingSchedule(false)
-  }
+ const pmSubmitSchedule = async () => {
+  const batch = pmBatches.find(b => b.id === pmScheduleBatchId)
+  if (!batch) return
+  if (senders.length === 0) { showToast("Kam se kam ek sender select karo (Compose tab se)", "error"); return }
+  if (pmScheduleMode === "later" && !pmScheduledDateTime) { showToast("Date/time select karo", "error"); return }
+  setPmSubmittingSchedule(true)
+  try {
+    await api.sendPersonalizedBatch({
+      batchId: batch.id, senders, ccEmail: ccEmail.trim(), attachments,
+      gapMode, manualGapSec, autoMinSec, autoMaxSec,
+      baseTimeIso: pmScheduleMode === "later" ? new Date(pmScheduledDateTime).toISOString() : undefined,
+    })
+
+    // 👇 NAYA — sent ho gaya, ab batch aur uski mails delete kar do (data Sheet mein hai already)
+    const members = pmMailsForBatch(batch.id)
+    for (const m of members) {
+      try { await api.deletePersonalizedMail(m.id) } catch {} // best-effort, ek fail ho bhi jaaye to aage badho
+    }
+    await api.deletePersonalizedBatch(batch.id)
+
+    showToast(`"${batch.name}" schedule ho gaya!`, "success")
+    setPmScheduleBatchId(null)
+    await loadPmData()
+    await loadEmailJobs()
+  } catch (err) { showApiError(err) }
+  setPmSubmittingSchedule(false)
+}
   // ── Bulk Schedule — multiple groups, each at its own time, in one go ──
   const [bulkRows, setBulkRows] = useState([]) // [{ id, groupId, dateTime }]
   const [bulkSubmitting, setBulkSubmitting] = useState(false)
@@ -1226,42 +1235,11 @@ const handleDeleteLog = async (messageId) => {
   const [tmVariantSubject, setTmVariantSubject] = useState("")
   const [tmVariantBody, setTmVariantBody] = useState("")
 const [selectedLogEntry, setSelectedLogEntry] = useState(null)
-const [storyDateFilter, setStoryDateFilter] = useState("") // "" = sab, warna "YYYY-MM-DD"
-  const [storySearchFilter, setStorySearchFilter] = useState("")
 
-  const IST = { timeZone: "Asia/Kolkata" }
-  const toIstDateKey = (iso) => iso ? new Date(iso).toLocaleDateString("en-CA", IST) : ""
 
-  const availableStoryDates = [...new Set(
-    sentLog.filter(l => l.time && (l.status === "sent" || l.status === "scheduled")).map(l => toIstDateKey(l.time))
-  )].sort((a, b) => new Date(b) - new Date(a))
+   
 
-  const storyEntries = sentLog
-    .filter(l => l.status === "sent" || l.status === "scheduled")
-    .filter(l => !storyDateFilter || toIstDateKey(l.time) === storyDateFilter)
-    .filter(l => !storySearchFilter || (l.email + (l.company || "") + (l.subject || "")).toLowerCase().includes(storySearchFilter.toLowerCase()))
-    .map(l => {
-      const emailLower = String(l.email || "").toLowerCase()
-      const key = `${emailLower}__${l.batchId}`
-      const evs = eventsByEmailBatch[key]?.events || []
-      const isSpam = evs.some(e => e.event === "spam")
-      const isBounced = evs.some(e => e.event === "bounced" || e.event === "hardBounce" || e.event === "softBounce")
-      const isOpened = evs.some(e => e.event === "opened")
-      const isClicked = evs.some(e => e.event === "clicked")
-      const isUnsub = evs.some(e => e.event === "unsubscribed")
-      const isFollowUp = String(l.variantUsed || "").toLowerCase().includes("followup")
-      const replyMatch = replies.find(r => r.batchId === l.batchId && r.email.toLowerCase() === emailLower)
-      return { ...l, evs, isSpam, isBounced, isOpened, isClicked, isUnsub, isFollowUp, hasReply: !!replyMatch, isReplyFresh: replyMatch && replyMatch.viewCount < 4 }
-    })
-    .sort((a, b) => new Date(b.time) - new Date(a.time))
 
-  const storyGroupedByDate = storyEntries.reduce((acc, e) => {
-    const key = toIstDateKey(e.time)
-    if (!acc[key]) acc[key] = []
-    acc[key].push(e)
-    return acc
-  }, {})
-  const storyDateKeys = Object.keys(storyGroupedByDate).sort((a, b) => new Date(b) - new Date(a))
 const [sendSubmitting, setSendSubmitting] = useState(false);
   const tmAddIndustry = () => {
 
@@ -1481,7 +1459,13 @@ const removeRecipient = async (id) => {
     } catch (err) { showApiError(err) }
     setDeletingIds(prev => { const n = new Set(prev); n.delete(id); return n })
   }
- 
+ function toIstDateKey(dateInput) {
+  const d = new Date(dateInput);
+  if (isNaN(d.getTime())) return "";
+  const istOffsetMs = 5.5 * 60 * 60 * 1000;
+  const ist = new Date(d.getTime() + istOffsetMs);
+  return ist.toISOString().slice(0, 10); // "YYYY-MM-DD"
+}
 
   // ── Job polling ──
 const startPolling = (jobId, total, batchId) => {
@@ -1587,7 +1571,8 @@ const startPolling = (jobId, total, batchId) => {
 
 useEffect(() => { if (activeView === "analytics" || activeView === "tracking") loadStats() }, [activeView])
     useEffect(() => { if (activeView === "sent") loadSentLog() }, [activeView])
-
+const [storyDateFilter, setStoryDateFilter] = useState("");
+const [storySearchFilter, setStorySearchFilter] = useState("");
  const extractBatchId = (ev) => {
     const tags = ev.tags || []
     const found = tags.find(t => typeof t === "string" && t.startsWith("batch_"))
@@ -1596,13 +1581,41 @@ useEffect(() => { if (activeView === "analytics" || activeView === "tracking") l
     // wapas bhejta hai (e.g. "batch_xxx,followup_2") — sirf batch_ wala part lo.
     return found.split(",")[0].trim()
   }
-const eventsByEmailBatch = events.reduce((acc, ev) => {
+  const eventsByEmailBatch = events.reduce((acc, ev) => {
     const emailLower = String(ev.email || "").toLowerCase().trim()
     const key = `${emailLower}__${extractBatchId(ev)}`
     if (!acc[key]) acc[key] = { email: emailLower, batchId: extractBatchId(ev), events: [] }
     acc[key].events.push(ev)
     return acc
   }, {})
+const availableStoryDates = [...new Set(
+    sentLog.filter(l => l.time && (l.status === "sent" || l.status === "scheduled")).map(l => toIstDateKey(l.time))
+  )].sort((a, b) => new Date(b) - new Date(a))
+const storyEntries = sentLog
+    .filter(l => l && (l.status === "sent" || l.status === "scheduled"))
+    .filter(l => !storyDateFilter || toIstDateKey(l.time) === storyDateFilter)
+    .filter(l => !storySearchFilter || (l.email + (l.company || "") + (l.subject || "")).toLowerCase().includes(storySearchFilter.toLowerCase()))
+    .map(l => {
+      const emailLower = String(l.email || "").toLowerCase()
+      const key = `${emailLower}__${l.batchId}`
+      const evs = eventsByEmailBatch[key]?.events || []
+      const isSpam = evs.some(e => e.event === "spam")
+      const isBounced = evs.some(e => e.event === "bounced" || e.event === "hardBounce" || e.event === "softBounce")
+      const isOpened = evs.some(e => e.event === "opened")
+      const isClicked = evs.some(e => e.event === "clicked")
+      const isUnsub = evs.some(e => e.event === "unsubscribed")
+      const isFollowUp = String(l.variantUsed || "").toLowerCase().includes("followup")
+      const replyMatch = replies.find(r => r.batchId === l.batchId && r.email.toLowerCase() === emailLower)
+      return { ...l, evs, isSpam, isBounced, isOpened, isClicked, isUnsub, isFollowUp, hasReply: !!replyMatch, isReplyFresh: replyMatch && replyMatch.viewCount < 4 }
+    })
+    .sort((a, b) => new Date(b.time) - new Date(a.time))
+  const storyGroupedByDate = storyEntries.reduce((acc, e) => {
+    const key = toIstDateKey(e.time)
+    if (!acc[key]) acc[key] = []
+    acc[key].push(e)
+    return acc
+  }, {})
+  const storyDateKeys = Object.keys(storyGroupedByDate).sort((a, b) => new Date(b) - new Date(a))
   const sent = stats?.requests || 0
   const delivered = stats?.delivered || 0
   const opened = stats?.uniqueOpens || 0
