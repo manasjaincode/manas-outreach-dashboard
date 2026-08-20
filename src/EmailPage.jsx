@@ -24,6 +24,7 @@ const textToHtml = (text) => {
     line = line.replace(/\[\[(\d+)\]\](.+?)\[\[\/\]\]/g, '<span style="font-size:$1px">$2</span>')
     line = line.replace(/\*\*(.+?)\*\*/g, "<b>$1</b>")
     line = line.replace(/\*(.+?)\*/g, "<i>$1</i>")
+    line = line.replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g, '<a href="$2" style="color:#1a73e8;text-decoration:underline;">$1</a>') // 👈 NEW
     if (line.trim().startsWith("•")) html += `<div style="margin:2px 0 2px 16px;">• ${line.trim().slice(1).trim()}</div>`
     else if (line.trim() === "") html += "<br/>"
     else html += `<div style="margin:2px 0;">${line}</div>`
