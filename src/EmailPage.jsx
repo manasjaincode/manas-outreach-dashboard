@@ -665,9 +665,9 @@ const pmOpenNewMail = () => {
     setPmEditorDirty(false)
   }
   const pmUpdateDraft = (patch) => { setPmEditorDraft(prev => ({ ...prev, ...patch })); setPmEditorDirty(true) }
-
-const pmSaveMail = async () => {
-    if (!pmEditorDraft.email.trim()) { showToast("Email khali hai — bharo pehle!", "error"); return false }
+  const pmSaveMail = async () => {
+    const validEmails = pmEditorDraft.email.split(/[,;]/).map(e => e.trim()).filter(e => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e))
+    if (!validEmails.length) { showToast("Koi valid email nahi mila — comma se separate karke likho!", "error"); return false }
     setPmEditorSaving(true)
     try {
       const payload = { ...pmEditorDraft, scheduledAt: pmEditorDraft.scheduledAt ? istLocalInputToUtcIso(pmEditorDraft.scheduledAt) : "" }
@@ -734,14 +734,14 @@ const pmDeleteAllMails = async () => {
     setPmDraggingId(null)
   }
 
-const pmHandleCsvFile = (e) => {
+  const pmHandleCsvFile = (e) => {
     const file = e.target.files?.[0]
     if (!file) return
     setPmCsvFileName(file.name)
     const reader = new FileReader()
     reader.onload = (ev) => {
       const rows = parseCSV(String(ev.target.result || ""))
-      const mapped = mapCsvToPersonalizedMails(rows).map(r => ({ ...r, _selected: true }))
+      const mapped = mapCsvToPersonalizedMails(rows).map(r => ({ ...r, subject: "", body: "", _selected: true }))
       setPmCsvParsedRows(mapped); setPmShowCsvModal(true)
     }
     reader.readAsText(file); e.target.value = ""
@@ -1424,6 +1424,38 @@ const tmDeleteCategory = async (ind, cat) => {
       const text = String(ev.target.result || "")
       const rows = parseCSV(text)
       const mapped = mapCsvToRecipients(rows).map(r => ({ ...r, _selected: true }))
+      // Personalized-mail ka apna CSV mapper — normal mapCsvToRecipients sirf
+// PEHLA email leta hai (single-recipient use-cases ke liye), lekin yaha
+// company ke SAARE employees ek "To" mein chahiye, isliye poori "All Emails"
+// list (semicolon-separated, jaisa Leads export deta hai) comma-joined
+// rakhte hain — backend isi string ko multi-recipient "To" mein todega.
+const mapCsvToPersonalizedMails = (rows) => {
+  if (rows.length < 2) return []
+  const headers = rows[0]
+  const emailIdx = guessColumnIndex(headers, ["best email", "email address", "email"])
+  const allEmailsIdx = guessColumnIndex(headers, ["all emails"])
+  const companyIdx = guessColumnIndex(headers, ["business name", "company name", "company"])
+  const nameIdx = guessColumnIndex(headers, ["person 1 name", "contact name", "full name", "name"])
+  const cityIdx = guessColumnIndex(headers, ["city"])
+  const scheduledAtIdx = guessColumnIndex(headers, ["scheduled_at", "scheduled at", "schedule time", "send at", "send_at"])
+
+  return rows.slice(1).map(r => {
+    let emailField = ""
+    if (allEmailsIdx !== -1 && (r[allEmailsIdx] || "").trim()) {
+      // "a@x.com; b@x.com" → "a@x.com, b@x.com" — sab employees ek saath
+      emailField = (r[allEmailsIdx] || "").split(";").map(e => e.trim()).filter(Boolean).join(", ")
+    } else if (emailIdx !== -1) {
+      emailField = (r[emailIdx] || "").trim()
+    }
+    return {
+      email: emailField,
+      name: nameIdx !== -1 ? (r[nameIdx] || "").trim() : "",
+      company: companyIdx !== -1 ? (r[companyIdx] || "").trim() : "",
+      city: cityIdx !== -1 ? (r[cityIdx] || "").trim() : "",
+      scheduledAt: scheduledAtIdx !== -1 ? parseIstToUtcIso((r[scheduledAtIdx] || "").trim()) : "",
+    }
+  }).filter(r => r.email.split(",").some(e => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e.trim())))
+}
       setCsvParsedRows(mapped)
       setShowCsvModal(true)
     }
@@ -2582,8 +2614,8 @@ const senderStats = senders.map(sdr => {
                             <input type="checkbox" checked={isMember} disabled={busy} onChange={() => toggleGroupMember(r)} style={{ cursor: "pointer" }} />
                             <div style={{ flex: 1, minWidth: 0 }}>
                               <div style={{ fontSize: 12, fontWeight: 600, color: C.text }}>{r.company || r.name || r.email}</div>
-                              <div style={{ fontSize: 11, color: C.textMuted }}>{r.email}</div>
-                            </div>
+                  <div style={{ fontSize: 11, color: C.textMuted }}>{r.email}</div>
+                  {r.email.includes(",") && <div style={{ fontSize: 9, color: C.accent, marginTop: 2 }}>👥 {r.email.split(",").length} recipients ek hi "To" mein</div>}                            </div>
                             {busy && <Spinner size={11} color={C.accent} />}
                           </label>
                         )
@@ -4046,8 +4078,9 @@ const filledCount = followUpTemplates[dayIdx]?.filter(v => v?.body).length || 0
             <div style={{ padding: 24, overflowY: "auto", display: "flex", flexDirection: "column", gap: 12 }}>
               <div style={{ display: "flex", gap: 10 }}>
                 <div style={{ flex: 1 }}>
-                  <div style={{ fontSize: 10, color: C.textMuted, marginBottom: 4, textTransform: "uppercase" }}>Email *</div>
+                  <div style={{ fontSize: 10, color: C.textMuted, marginBottom: 4, textTransform: "uppercase" }}>Email(s) * — company ke 2+ logo ko ek saath bhejni ho to comma se likho</div>
                   <input value={pmEditorDraft.email} onChange={e => pmUpdateDraft({ email: e.target.value })}
+                    placeholder="raj@company.com, priya@company.com"
                     style={{ width: "100%", background: C.card, border: `1px solid ${C.border2}`, color: C.text, padding: "8px 10px", borderRadius: 6, fontSize: 12, boxSizing: "border-box" }} />
                 </div>
                 <div style={{ flex: 1 }}>
