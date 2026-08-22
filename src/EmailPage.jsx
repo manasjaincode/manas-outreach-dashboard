@@ -746,8 +746,8 @@ const pmDeleteAllMails = async () => {
     const reader = new FileReader()
     reader.onload = (ev) => {
       const rows = parseCSV(String(ev.target.result || ""))
-      const mapped = mapCsvToPersonalizedMails(rows).map(r => ({ ...r, subject: "", body: "", _selected: true }))
-      setPmCsvParsedRows(mapped); setPmShowCsvModal(true)
+const mapped = mapCsvToPersonalizedMails(rows).map(r => ({ ...r, _selected: true }))    
+  setPmCsvParsedRows(mapped); setPmShowCsvModal(true)
     }
     reader.readAsText(file); e.target.value = ""
   }
@@ -1429,38 +1429,7 @@ const tmDeleteCategory = async (ind, cat) => {
       const text = String(ev.target.result || "")
       const rows = parseCSV(text)
       const mapped = mapCsvToRecipients(rows).map(r => ({ ...r, _selected: true }))
-      // Personalized-mail ka apna CSV mapper — normal mapCsvToRecipients sirf
-// PEHLA email leta hai (single-recipient use-cases ke liye), lekin yaha
-// company ke SAARE employees ek "To" mein chahiye, isliye poori "All Emails"
-// list (semicolon-separated, jaisa Leads export deta hai) comma-joined
-// rakhte hain — backend isi string ko multi-recipient "To" mein todega.
-const mapCsvToPersonalizedMails = (rows) => {
-  if (rows.length < 2) return []
-  const headers = rows[0]
-  const emailIdx = guessColumnIndex(headers, ["best email", "email address", "email"])
-  const allEmailsIdx = guessColumnIndex(headers, ["all emails"])
-  const companyIdx = guessColumnIndex(headers, ["business name", "company name", "company"])
-  const nameIdx = guessColumnIndex(headers, ["person 1 name", "contact name", "full name", "name"])
-  const cityIdx = guessColumnIndex(headers, ["city"])
-  const scheduledAtIdx = guessColumnIndex(headers, ["scheduled_at", "scheduled at", "schedule time", "send at", "send_at"])
 
-  return rows.slice(1).map(r => {
-    let emailField = ""
-    if (allEmailsIdx !== -1 && (r[allEmailsIdx] || "").trim()) {
-      // "a@x.com; b@x.com" → "a@x.com, b@x.com" — sab employees ek saath
-      emailField = (r[allEmailsIdx] || "").split(";").map(e => e.trim()).filter(Boolean).join(", ")
-    } else if (emailIdx !== -1) {
-      emailField = (r[emailIdx] || "").trim()
-    }
-    return {
-      email: emailField,
-      name: nameIdx !== -1 ? (r[nameIdx] || "").trim() : "",
-      company: companyIdx !== -1 ? (r[companyIdx] || "").trim() : "",
-      city: cityIdx !== -1 ? (r[cityIdx] || "").trim() : "",
-      scheduledAt: scheduledAtIdx !== -1 ? parseIstToUtcIso((r[scheduledAtIdx] || "").trim()) : "",
-    }
-  }).filter(r => r.email.split(",").some(e => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e.trim())))
-}
       setCsvParsedRows(mapped)
       setShowCsvModal(true)
     }
