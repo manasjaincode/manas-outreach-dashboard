@@ -126,10 +126,15 @@ const mapCsvToPersonalizedMails = (rows) => {
   const scheduledAtIdx = guessColumnIndex(headers, ["scheduled_at", "scheduled at", "schedule time", "send at", "send_at"])
 
   return rows.slice(1).map(r => {
-    let email = emailIdx !== -1 ? (r[emailIdx] || "").trim() : ""
-    if (!email && allEmailsIdx !== -1) email = (r[allEmailsIdx] || "").split(";")[0].trim()
+    let emailField = ""
+    // 👇 "All Emails" ko PEHLE check karo — isme multiple emails ho sakte hain (semicolon-separated)
+    if (allEmailsIdx !== -1 && (r[allEmailsIdx] || "").trim()) {
+      emailField = (r[allEmailsIdx] || "").split(";").map(e => e.trim()).filter(Boolean).join(", ")
+    } else if (emailIdx !== -1) {
+      emailField = (r[emailIdx] || "").trim()
+    }
     return {
-      email,
+      email: emailField,
       name: nameIdx !== -1 ? (r[nameIdx] || "").trim() : "",
       company: companyIdx !== -1 ? (r[companyIdx] || "").trim() : "",
       city: cityIdx !== -1 ? (r[cityIdx] || "").trim() : "",
@@ -137,7 +142,7 @@ const mapCsvToPersonalizedMails = (rows) => {
       body: bodyIdx !== -1 ? (r[bodyIdx] || "").trim() : "",
       scheduledAt: scheduledAtIdx !== -1 ? parseIstToUtcIso((r[scheduledAtIdx] || "").trim()) : "",
     }
-  }).filter(r => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(r.email))
+  }).filter(r => r.email.split(",").some(e => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e.trim())))
 }
 // Parses common date/time formats (YYYY-MM-DD HH:mm, DD/MM/YYYY HH:mm, etc.)
 // ALWAYS as IST wall-clock time (regardless of browser's own timezone),
