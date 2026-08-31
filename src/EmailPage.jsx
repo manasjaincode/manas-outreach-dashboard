@@ -634,6 +634,9 @@ const [pmEditorDraft, setPmEditorDraft] = useState({ cc: "", email: "", name: ""
   const [pmNewBatchName, setPmNewBatchName] = useState("")
   const [pmCreatingBatch, setPmCreatingBatch] = useState(false)
   const [pmDraggingId, setPmDraggingId] = useState(null)
+  const [pmSelectedIds, setPmSelectedIds] = useState(new Set())
+const [pmBulkTargetBatch, setPmBulkTargetBatch] = useState("")
+const [pmBulkAssigning, setPmBulkAssigning] = useState(false)
   const [pmDragOverBatch, setPmDragOverBatch] = useState(null)
   const [pmCsvFileName, setPmCsvFileName] = useState("")
   const [pmCsvParsedRows, setPmCsvParsedRows] = useState([])
@@ -727,6 +730,29 @@ const pmDeleteAllMails = async () => {
       showToast("Saari mails delete ho gayi!", "success")
     } catch (err) { showApiError(err) }
     setPmDeletingAll(false)
+  }
+  const pmToggleSelect = (id) => {
+    setPmSelectedIds(prev => {
+      const next = new Set(prev)
+      next.has(id) ? next.delete(id) : next.add(id)
+      return next
+    })
+  }
+  const pmSelectAllVisible = () => setPmSelectedIds(new Set(pmFilteredUnassigned.map(m => m.id)))
+  const pmClearSelection = () => setPmSelectedIds(new Set())
+
+  const pmBulkAssignSelected = async () => {
+    if (!pmBulkTargetBatch || pmSelectedIds.size === 0) return
+    setPmBulkAssigning(true)
+    const ids = [...pmSelectedIds]
+    try {
+      await Promise.all(ids.map(id => api.assignMailToBatch(id, pmBulkTargetBatch)))
+      setPmMails(prev => prev.map(m => ids.includes(m.id) ? { ...m, batchId: pmBulkTargetBatch } : m))
+      setPmSelectedIds(new Set())
+      setPmBulkTargetBatch("")
+      showToast(`${ids.length} mail${ids.length !== 1 ? "s" : ""} batch mein assign ho gayi!`, "success")
+    } catch (err) { showApiError(err); await loadPmData() }
+    setPmBulkAssigning(false)
   }
   const pmAssignToBatch = async (mailId, batchId) => {
     setPmMails(prev => prev.map(m => m.id === mailId ? { ...m, batchId: batchId || "" } : m))
@@ -2629,6 +2655,28 @@ const senderStats = senders.map(sdr => {
               <input placeholder="Search pool..." value={pmSearchFilter} onChange={e => setPmSearchFilter(e.target.value)}
                 style={{ width: "100%", background: C.card, border: `1px solid ${C.border2}`, color: C.text, padding: "7px 10px", borderRadius: 6, fontSize: 12, boxSizing: "border-box" }} />
               <div style={{ fontSize: 10, color: C.textDim, marginTop: 6 }}>💡 Bubble ko kisi batch pe drag karke drop karo assign karne ke liye</div>
+                       {pmFilteredUnassigned.length > 0 && (
+                <div style={{ marginTop: 10, paddingTop: 10, borderTop: `1px solid ${C.border}` }}>
+                  <div style={{ display: "flex", gap: 6, marginBottom: 6 }}>
+                    <button onClick={pmSelectAllVisible} style={{ fontSize: 10, padding: "4px 8px", borderRadius: 5, border: `1px solid ${C.border2}`, background: "transparent", color: C.textMuted, cursor: "pointer" }}>Select All</button>
+                    <button onClick={pmClearSelection} style={{ fontSize: 10, padding: "4px 8px", borderRadius: 5, border: `1px solid ${C.border2}`, background: "transparent", color: C.textMuted, cursor: "pointer" }}>Clear</button>
+                    {pmSelectedIds.size > 0 && <span style={{ fontSize: 10, color: C.accent, alignSelf: "center", marginLeft: 4 }}>{pmSelectedIds.size} selected</span>}
+                  </div>
+                  {pmSelectedIds.size > 0 && (
+                    <div style={{ display: "flex", gap: 6 }}>
+                      <select value={pmBulkTargetBatch} onChange={e => setPmBulkTargetBatch(e.target.value)}
+                        style={{ flex: 1, background: C.card, border: `1px solid ${C.border2}`, color: C.text, padding: "6px 8px", borderRadius: 6, fontSize: 11, cursor: "pointer" }}>
+                        <option value="">Batch chuno...</option>
+                        {pmBatches.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
+                      </select>
+                      <button onClick={pmBulkAssignSelected} disabled={!pmBulkTargetBatch || pmBulkAssigning} style={{
+                        padding: "6px 12px", borderRadius: 6, border: "none", fontSize: 11, fontWeight: 700, cursor: (!pmBulkTargetBatch || pmBulkAssigning) ? "not-allowed" : "pointer",
+                        background: (!pmBulkTargetBatch || pmBulkAssigning) ? C.border2 : C.accent, color: "#fff",
+                      }}>{pmBulkAssigning ? <Spinner size={10} /> : "Assign"}</button>
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
 
             <div style={{
@@ -2646,15 +2694,16 @@ const senderStats = senders.map(sdr => {
               ) : pmFilteredUnassigned.map(m => {
                 const filled = pmIsFilled(m)
                 return (
-                  <div key={m.id} draggable
+                              <div key={m.id} draggable
                     onDragStart={() => setPmDraggingId(m.id)}
                     onDragEnd={() => setPmDraggingId(null)}
                     onClick={() => pmOpenEditMail(m)}
                     style={{
                       display: "flex", alignItems: "center", gap: 10, padding: "9px 12px", borderRadius: 10, marginBottom: 6, cursor: "grab",
-                      background: C.card, border: `1.5px solid ${filled ? C.green + "55" : C.red + "55"}`,
+                      background: pmSelectedIds.has(m.id) ? C.accentDim : C.card, border: `1.5px solid ${pmSelectedIds.has(m.id) ? C.accent : (filled ? C.green + "55" : C.red + "55")}`,
                       opacity: pmDraggingId === m.id ? 0.4 : 1, transition: "opacity .1s",
                     }}>
+                    <input type="checkbox" checked={pmSelectedIds.has(m.id)} onChange={() => pmToggleSelect(m.id)} onClick={e => e.stopPropagation()} style={{ cursor: "pointer", flexShrink: 0 }} />
                     <div style={{ width: 30, height: 30, borderRadius: "50%", background: filled ? C.greenDim : C.redDim, color: filled ? C.green : C.red, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, fontWeight: 700, flexShrink: 0 }}>
                       {(m.name || m.email)[0].toUpperCase()}
                     </div>
