@@ -124,7 +124,7 @@ const mapCsvToPersonalizedMails = (rows) => {
   const subjectIdx = guessColumnIndex(headers, ["subject"])
   const bodyIdx = guessColumnIndex(headers, ["body"])
   const scheduledAtIdx = guessColumnIndex(headers, ["scheduled_at", "scheduled at", "schedule time", "send at", "send_at"])
-
+const ccIdx = guessColumnIndex(headers, ["cc"])
   return rows.slice(1).map(r => {
     let emailField = ""
     // 👇 "All Emails" ko PEHLE check karo — isme multiple emails ho sakte hain (semicolon-separated)
@@ -141,6 +141,7 @@ const mapCsvToPersonalizedMails = (rows) => {
       subject: subjectIdx !== -1 ? (r[subjectIdx] || "").trim() : "",
       body: bodyIdx !== -1 ? (r[bodyIdx] || "").trim() : "",
       scheduledAt: scheduledAtIdx !== -1 ? parseIstToUtcIso((r[scheduledAtIdx] || "").trim()) : "",
+      cc: ccIdx !== -1 ? (r[ccIdx] || "").trim() : "",
     }
   }).filter(r => r.email.split(",").some(e => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e.trim())))
 }
@@ -627,7 +628,7 @@ const handleCreateGroup = async () => {
   const [loadingPm, setLoadingPm] = useState(false)
   const [pmSearchFilter, setPmSearchFilter] = useState("")
   const [pmEditorMail, setPmEditorMail] = useState(null)
-const [pmEditorDraft, setPmEditorDraft] = useState({ email: "", name: "", company: "", city: "", subject: "", body: "", scheduledAt: "" })
+const [pmEditorDraft, setPmEditorDraft] = useState({ cc: "", email: "", name: "", company: "", city: "", subject: "", body: "", scheduledAt: "" })
   const [pmEditorSaving, setPmEditorSaving] = useState(false)
   const [pmEditorDirty, setPmEditorDirty] = useState(false)
   const [pmNewBatchName, setPmNewBatchName] = useState("")
@@ -4071,6 +4072,7 @@ const filledCount = followUpTemplates[dayIdx]?.filter(v => v?.body).length || 0
                 </div>
                 <div style={{ flex: 1 }}>
                   <div style={{ fontSize: 10, color: C.textMuted, marginBottom: 4, textTransform: "uppercase" }}>City</div>
+                 <input value={pmEditorDraft.cc} onChange={e => pmUpdateDraft({ cc: e.target.value })} placeholder="cc@example.com" />
                   <input value={pmEditorDraft.city} onChange={e => pmUpdateDraft({ city: e.target.value })}
                     style={{ width: "100%", background: C.card, border: `1px solid ${C.border2}`, color: C.text, padding: "8px 10px", borderRadius: 6, fontSize: 12, boxSizing: "border-box" }} />
                 </div>
