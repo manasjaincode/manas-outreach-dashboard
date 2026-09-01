@@ -670,8 +670,8 @@ const pmOpenNewMail = () => {
   }
   const pmOpenEditMail = (m) => {
     setPmEditorMail(m)
-    setPmEditorDraft({ email: m.email, name: m.name || "", company: m.company || "", city: m.city || "", subject: m.subject || "", body: m.body || "", scheduledAt: m.scheduledAt || "" })
-    setPmEditorDirty(false)
+setPmEditorDraft({ email: m.email, name: m.name || "", company: m.company || "", city: m.city || "", subject: m.subject || "", body: m.body || "", scheduledAt: m.scheduledAt || "", cc: m.cc || "" })   
+ setPmEditorDirty(false)
   }
   const pmUpdateDraft = (patch) => { setPmEditorDraft(prev => ({ ...prev, ...patch })); setPmEditorDirty(true) }
   const pmSaveMail = async () => {
