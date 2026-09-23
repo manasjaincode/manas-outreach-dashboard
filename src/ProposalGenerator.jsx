@@ -100,7 +100,7 @@ export default function ProposalGenerator() {
     setFileName("");
     if (fileInputRef.current) fileInputRef.current.value = "";
   };
-
+//sdfsdfsdf//
   const parseResult = (raw) => {
     // Expects: PROPOSAL:\n...\n---\nANGLES: a, b, c\nWHY: sentence
     const proposalMatch = raw.match(/PROPOSAL:\s*([\s\S]*?)\n---/i);
